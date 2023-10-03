@@ -6,18 +6,17 @@ sys.path.append("../DeepHypergraph/")
 import time
 import random
 from copy import deepcopy
+import itertools
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-import dhg
 from dhg import Hypergraph
-from dhg.nn import HGNNPConv
-from dhg.models import HGNNPLinkPred
 from dhg.random import set_seed
 from dhg.metrics import LinkPredictionEvaluator as Evaluator
+from model import HGNNP, ScorePredictor
 
 # %%
 import numpy as np
@@ -35,13 +34,14 @@ def calculate_sparsity(matrix):
 # calculate_sparsity(HG.H.to_dense().cpu().numpy())
 
 # %%
-def train(net, X, hypergraph, negative_hypergraph, optimizer, epoch):
+def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
     net.train()
 
     st = time.time()
     optimizer.zero_grad()
-    pos_score = net(X, hypergraph)
-    neg_score = net(X, negative_hypergraph)
+    X = net(X, msg_pass_hg)
+    pos_score = pred(X, pos_hg)
+    neg_score = pred(X, neg_hg)
 
     scores = torch.cat([pos_score, neg_score]).squeeze()
     labels = torch.cat(
@@ -56,10 +56,11 @@ def train(net, X, hypergraph, negative_hypergraph, optimizer, epoch):
 
 # %%
 @torch.no_grad()
-def infer(net, X, hypergraph, negative_hypergraph, test=False):
+def infer(net, pred, X, msg_pass_hg, pos_hg, neg_hg, test=False):
     net.eval()
-    pos_score = net(X, hypergraph)
-    neg_score = net(X, negative_hypergraph)
+    X = net(X, msg_pass_hg)
+    pos_score = pred(X, pos_hg)
+    neg_score = pred(X, neg_hg)
 
     scores = torch.cat([pos_score, neg_score]).squeeze()
     labels = torch.cat(
@@ -76,7 +77,7 @@ def infer(net, X, hypergraph, negative_hypergraph, test=False):
 import csv
 from pathlib import Path
 
-def load_data(file_path: Path):
+def load_data(file_path: Path, ratio: float=0.5, data_balance: bool=True):
     hyperedge_list = []
     neg_hyperedge_list = []
     with open(file_path / "hyperedges.csv", "r") as file:
@@ -85,86 +86,132 @@ def load_data(file_path: Path):
             # 读取每个超边的顶点列表，并将它们添加到 hyperedge_list 中
             hyperedge_list.append(row)
     
+    # 确保超边顶点的数值是整数形式，便于后续的处理和计算
     hyperedge_list = [[int(v) for v in edge] for edge in hyperedge_list]
+
+    # 将超图的边分为消息传递边和监督边
+    random.shuffle(hyperedge_list)
+    split_pos = int(len(hyperedge_list) * ratio)
+    # 获取前ratio比例的元素作为消息传递边的列表
+    msg_pass_hyperedge_list = hyperedge_list[:split_pos]
+    # 获取后ratio比例的元素作为监督边的列表
+    pos_hyperedge_list = hyperedge_list[split_pos:]
 
     with open(file_path / "negative_samples.csv", "r") as file:
         reader = csv.reader(file)
         for row in reader:
             neg_hyperedge_list.append(row) 
 
+    # 确保超边顶点的数值是整数形式，便于后续的处理和计算
     neg_hyperedge_list = [[int(v) for v in edge] for edge in neg_hyperedge_list]
 
     with open(file_path / "task_quadruples.csv", 'r') as csvfile:
         reader = csv.reader(csvfile)
-        data = [list(map(float, row)) for row in reader]
+        features = [list(map(float, row)) for row in reader]
 
     # 将数据转换为 Tensor
-    features = torch.tensor(data)
+    features = torch.tensor(features)
 
-    data = {"hyperedge_list": hyperedge_list, "num_edges" : len(hyperedge_list)}
-    neg_data = {"hyperedge_list": neg_hyperedge_list, "num_edges" : len(neg_hyperedge_list)}
+    # 处理监督边和负采样边数据不平衡的问题
+    if data_balance:
+        if len(neg_hyperedge_list) > len(pos_hyperedge_list):
+            neg_hyperedge_list = random.sample(neg_hyperedge_list, len(pos_hyperedge_list))
+        elif len(neg_hyperedge_list) < len(pos_hyperedge_list):
+            pos_hyperedge_list = random.sample(pos_hyperedge_list, len(neg_hyperedge_list))
 
-    return {"pos":data, "neg": neg_data, "vertices_feature" : features, "num_vertices" : features.shape[0]}
+    msg_pass_data = {"hyperedge_list": msg_pass_hyperedge_list, "num_edges" : len(msg_pass_hyperedge_list)}
+    pos_data      = {"hyperedge_list": pos_hyperedge_list, "num_edges" : len(pos_hyperedge_list)}
+    neg_data      = {"hyperedge_list": neg_hyperedge_list, "num_edges" : len(neg_hyperedge_list)}
+
+    return {"msg_pass": msg_pass_data, "pos": pos_data, "neg": neg_data, "vertices_feature": features, "num_vertices": features.shape[0]}
 
 # %%
 set_seed(2021)
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 evaluator = Evaluator(["auc", "accuracy", "f1_score"], validate_index=1)
 
-train_data =    load_data(Path("../EDF/data/data_s3000_p3_t1000_hs7_e10000/"))
-validate_data = load_data(Path("../EDF/data/data_s3001_p3_t1000_hs7_e10000/"))
-test_data =     load_data(Path("../EDF/data/data_s3002_p9_t1000_hs7_e5000/"))
+train_data =    load_data(Path("../EDF/data/data_s3003_p3_t1000_hs7_e20000/"))
+validate_data = load_data(Path("../EDF/data/data_s3004_p3_t1000_hs7_e20000/"))
+test_data =     load_data(Path("../EDF/data/data_s3005_p3_t1000_hs7_e20000/"))
 
 print("已加载数据")
 
 train_X = train_data["vertices_feature"]
-# train_X = torch.eye(train_data["num_vertices"]) # 不使用任务属性作为节点嵌入向量的初始化
-train_HG = Hypergraph(train_data["num_vertices"], train_data["pos"]["hyperedge_list"])
-train_neg_HG = Hypergraph(train_data["num_vertices"], train_data["neg"]["hyperedge_list"])
-
-# 随机采样部分超边建图
-# ratio = 0.1
-# train_pos_hyperedge_list = random.sample(train_data["pos"]["hyperedge_list"], int(train_data["pos"]["num_edges"] * ratio))
-# train_neg_hyperedge_list = random.sample(train_data["neg"]["hyperedge_list"], int(train_data["neg"]["num_edges"] * ratio))
-# train_HG = Hypergraph(train_data["num_vertices"], train_pos_hyperedge_list)
-# train_neg_HG = Hypergraph(train_data["num_vertices"], train_neg_hyperedge_list)
+train_msg_pass_HG = Hypergraph(train_data["num_vertices"], train_data["msg_pass"]["hyperedge_list"])
+train_pos_HG      = Hypergraph(train_data["num_vertices"], train_data["pos"]["hyperedge_list"])
+train_neg_HG      = Hypergraph(train_data["num_vertices"], train_data["neg"]["hyperedge_list"])
 
 validate_X = validate_data["vertices_feature"]
-# validate_X = torch.eye(validate_data["num_vertices"]) # 不使用任务属性作为节点嵌入向量的初始化
-validate_HG = Hypergraph(validate_data["num_vertices"], validate_data["pos"]["hyperedge_list"])
-validate_neg_HG = Hypergraph(validate_data["num_vertices"], validate_data["neg"]["hyperedge_list"])
+validate_msg_pass_HG = Hypergraph(validate_data["num_vertices"], validate_data["msg_pass"]["hyperedge_list"])
+validate_pos_HG      = Hypergraph(validate_data["num_vertices"], validate_data["pos"]["hyperedge_list"])
+validate_neg_HG      = Hypergraph(validate_data["num_vertices"], validate_data["neg"]["hyperedge_list"])
 
 test_X = test_data["vertices_feature"]
-# test_X = torch.eye(test_data["num_vertices"]) # 不使用任务属性作为节点嵌入向量的初始化
-test_HG = Hypergraph(test_data["num_vertices"], test_data["pos"]["hyperedge_list"])
-test_neg_HG = Hypergraph(test_data["num_vertices"], test_data["neg"]["hyperedge_list"])
+test_msg_pass_HG = Hypergraph(test_data["num_vertices"], test_data["msg_pass"]["hyperedge_list"])
+test_pos_HG      = Hypergraph(test_data["num_vertices"], test_data["pos"]["hyperedge_list"])
+test_neg_HG      = Hypergraph(test_data["num_vertices"], test_data["neg"]["hyperedge_list"])
+
+# 不使用任务属性作为节点嵌入向量的初始化
+# train_X = torch.eye(train_data["num_vertices"])
+# validate_X = torch.eye(validate_data["num_vertices"])
+# test_X = torch.eye(test_data["num_vertices"])
 
 print("已建立超图")
-# print(f"train_HG: 超边数量{len(train_pos_hyperedge_list)}")
-# print(f"train_neg_HG: 超边数量{len(train_neg_hyperedge_list)}")
 
 # %%
-net = HGNNPLinkPred(train_X.shape[1], 64, 32, use_bn=True)
+in_channels = train_X.shape[1]
+hid_channels = 64
+out_channels = 32
+net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True)
+pred = ScorePredictor(out_channels)
+
+
+num_params = sum(param.numel() for param in net.parameters()) + sum(param.numel() for param in pred.parameters())
+print(f"模型参数量：{num_params}")
 
 # %%
-optimizer = optim.Adam(net.parameters(), lr=0.00001, weight_decay=5e-4)
+optimizer = optim.Adam(itertools.chain(net.parameters(), pred.parameters()), lr=0.01, weight_decay=5e-4)
 
 # %%
 
 print("正在从cpu转移数据到gpu...")
 
-train_X = train_X.to(device)
-train_HG = train_HG.to(device)
-train_neg_HG = train_neg_HG.to(device)
+print(f"X: {train_X.device}")
+print(f"validate_X: {validate_X.device}")
+print(f"test_X: {test_X.device}")
+
+print(f"msg_pass_HG: {train_msg_pass_HG.device}")
+print(f"validate_msg_pass_HG: {validate_msg_pass_HG.device}")
+print(f"test_msg_pass_HG: {test_msg_pass_HG.device}")
+
+print(f"pos_HG: {train_pos_HG.device}")
+print(f"validate_pos_HG: {validate_pos_HG.device}")
+print(f"test_pos_HG: {test_pos_HG.device}")
+
+print(f"neg_HG: {train_neg_HG.device}")
+print(f"validate_neg_HG: {validate_neg_HG.device}")
+print(f"test_neg_HG: {test_neg_HG.device}")
+
+print(f"net: {next(net.parameters()).device}")
+print(f"pred: {next(pred.parameters()).device}")
+
 net = net.to(device)
+pred = pred.to(device)
+
+train_X = train_X.to(device)
+train_msg_pass_HG = train_msg_pass_HG.to(device)
+train_pos_HG      = train_pos_HG.to(device)
+train_neg_HG      = train_neg_HG.to(device)
 
 validate_X = validate_X.to(device)
-validate_HG = validate_HG.to(device)
-validate_neg_HG = validate_neg_HG.to(device)
+validate_msg_pass_HG = validate_msg_pass_HG.to(device)
+validate_pos_HG      = validate_pos_HG.to(device)
+validate_neg_HG      = validate_neg_HG.to(device)
 
 test_X = test_X.to(device)
-test_HG = test_HG.to(device)
-test_neg_HG = test_neg_HG.to(device)
+test_msg_pass_HG = test_msg_pass_HG.to(device)
+test_pos_HG      = test_pos_HG.to(device)
+test_neg_HG      = test_neg_HG.to(device)
 
 # %%
 
@@ -174,15 +221,20 @@ print(f"X: {train_X.device}")
 print(f"validate_X: {validate_X.device}")
 print(f"test_X: {test_X.device}")
 
-print(f"HG: {train_HG.device}")
-print(f"validate_HG: {validate_HG.device}")
-print(f"test_HG: {test_HG.device}")
+print(f"msg_pass_HG: {train_msg_pass_HG.device}")
+print(f"validate_msg_pass_HG: {validate_msg_pass_HG.device}")
+print(f"test_msg_pass_HG: {test_msg_pass_HG.device}")
+
+print(f"pos_HG: {train_pos_HG.device}")
+print(f"validate_pos_HG: {validate_pos_HG.device}")
+print(f"test_pos_HG: {test_pos_HG.device}")
 
 print(f"neg_HG: {train_neg_HG.device}")
 print(f"validate_neg_HG: {validate_neg_HG.device}")
 print(f"test_neg_HG: {test_neg_HG.device}")
 
 print(f"net: {next(net.parameters()).device}")
+print(f"pred: {next(pred.parameters()).device}")
 
 # %%
 
@@ -190,13 +242,13 @@ print("正在训练模型...")
 
 best_state = None
 best_epoch, best_val = 0, 0
-for epoch in range(20000):
+for epoch in range(500):
     # train
-    train(net, train_X, train_HG, train_neg_HG, optimizer, epoch)
+    train(net, pred, train_X, train_msg_pass_HG, train_pos_HG, train_neg_HG, optimizer, epoch)
     # validation
     if epoch % 1 == 0:
         with torch.no_grad(): 
-            val_res = infer(net, validate_X, validate_HG, validate_neg_HG)
+            val_res = infer(net, pred, validate_X, validate_msg_pass_HG, validate_pos_HG, validate_neg_HG)
         if val_res > best_val:
             print(f"update best: {val_res:.5f}")
             best_epoch = epoch
@@ -205,13 +257,12 @@ for epoch in range(20000):
 print("\ntrain finished!")
 print(f"best val: {best_val:.5f}")
 
-
 # %%
 # test
 print("test...")
 if not (best_val == 0 or best_state):
     net.load_state_dict(best_state)
-res = infer(net, test_X, test_HG, test_neg_HG, test=True)
+res = infer(net, pred, test_X, test_msg_pass_HG, test_pos_HG, test_neg_HG, test=True)
 print(f"final result: epoch: {best_epoch}")
 print(res)
 
