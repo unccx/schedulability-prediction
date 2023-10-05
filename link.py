@@ -7,6 +7,7 @@ import time
 import random
 from copy import deepcopy
 import itertools
+import tqdm
 
 import torch
 import torch.nn as nn
@@ -59,7 +60,7 @@ def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
     loss = F.binary_cross_entropy(scores, labels)
     loss.backward()
     optimizer.step()
-    print(f"Epoch: {epoch}, Time: {time.time()-st:.5f}s, Loss: {loss.item():.5f}")
+    # print(f"Epoch: {epoch}, Time: {time.time()-st:.5f}s, Loss: {loss.item():.5f}")
     return loss.item()
 
 # %%
@@ -76,12 +77,14 @@ def infer(net, pred, X, msg_pass_hg, pos_hg, neg_hg, test=False):
         [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])]
     ).to(device)
 
+    loss = F.binary_cross_entropy(scores, labels)
+
     global evaluator
     if not test:
-        res = evaluator.validate(labels, scores)
+        eval_res = evaluator.validate(labels, scores)
     else:
-        res = evaluator.test(labels, scores)
-    return res
+        eval_res = evaluator.test(labels, scores)
+    return eval_res, loss
 
 # %%
 import csv
@@ -186,25 +189,6 @@ optimizer = optim.Adam(itertools.chain(net.parameters(), pred.parameters()), lr=
 
 print("正在从cpu转移数据到gpu...")
 
-print(f"X: {train_X.device}")
-print(f"validate_X: {validate_X.device}")
-print(f"test_X: {test_X.device}")
-
-print(f"msg_pass_HG: {train_msg_pass_HG.device}")
-print(f"validate_msg_pass_HG: {validate_msg_pass_HG.device}")
-print(f"test_msg_pass_HG: {test_msg_pass_HG.device}")
-
-print(f"pos_HG: {train_pos_HG.device}")
-print(f"validate_pos_HG: {validate_pos_HG.device}")
-print(f"test_pos_HG: {test_pos_HG.device}")
-
-print(f"neg_HG: {train_neg_HG.device}")
-print(f"validate_neg_HG: {validate_neg_HG.device}")
-print(f"test_neg_HG: {test_neg_HG.device}")
-
-print(f"net: {next(net.parameters()).device}")
-print(f"pred: {next(pred.parameters()).device}")
-
 net = net.to(device)
 pred = pred.to(device)
 
@@ -252,18 +236,29 @@ print("正在训练模型...")
 
 best_state = None
 best_epoch, best_val = 0, 0
-for epoch in range(5000):
-    # train
-    train(net, pred, train_X, train_msg_pass_HG, train_pos_HG, train_neg_HG, optimizer, epoch)
-    # validation
-    if epoch % 1 == 0:
-        with torch.no_grad(): 
-            val_res = infer(net, pred, validate_X, validate_msg_pass_HG, validate_pos_HG, validate_neg_HG)
-        if val_res > best_val:
-            print(f"update best: {val_res:.5f}")
-            best_epoch = epoch
-            best_val = val_res
-            best_state = deepcopy(net.state_dict())
+with tqdm.trange(5000) as tq:
+    for epoch in tq:
+        # train
+        train_loss = train(net, pred, train_X, train_msg_pass_HG, train_pos_HG, train_neg_HG, optimizer, epoch)
+        # validation
+        if epoch % 1 == 0:
+            with torch.no_grad(): 
+                val_res, val_loss = infer(net, pred, validate_X, validate_msg_pass_HG, validate_pos_HG, validate_neg_HG)
+            if val_res > best_val:
+                # print(f"update best: {val_res:.5f}")
+                best_epoch = epoch
+                best_val = val_res
+                best_state = deepcopy(net.state_dict())
+        tq.set_postfix(
+            {
+                "best_epoch": f"{best_epoch}",
+                "best_val": f"{best_val:.5f}",
+                "train_loss": f"{train_loss:.5f}",
+                "validate_res": f"{val_res:.5f}",
+            },
+            refresh=False,
+        )
+
 print("\ntrain finished!")
 print(f"best val: {best_val:.5f}")
 
@@ -272,8 +267,6 @@ print(f"best val: {best_val:.5f}")
 print("test...")
 if not (best_val == 0 or best_state):
     net.load_state_dict(best_state)
-res = infer(net, pred, test_X, test_msg_pass_HG, test_pos_HG, test_neg_HG, test=True)
+test_res, test_loss = infer(net, pred, test_X, test_msg_pass_HG, test_pos_HG, test_neg_HG, test=True)
 print(f"final result: epoch: {best_epoch}")
-print(res)
-
-
+print(test_res)
