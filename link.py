@@ -13,10 +13,11 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
+from dhg.nn import BPRLoss
 from dhg import Hypergraph
 from dhg.random import set_seed
 from dhg.metrics import LinkPredictionEvaluator as Evaluator
-from model import HGNNP, ScorePredictor
+from model import HGNNP, ScorePredictor, UniGCN, UniGAT, UniSAGE, UniGIN
 
 # %%
 import numpy as np
@@ -33,6 +34,8 @@ def calculate_sparsity(matrix):
 
 # calculate_sparsity(HG.H.to_dense().cpu().numpy())
 
+bpr = BPRLoss()
+
 # %%
 def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
     net.train()
@@ -40,15 +43,19 @@ def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
     st = time.time()
     optimizer.zero_grad()
     X = net(X, msg_pass_hg)
-    pos_score = pred(X, pos_hg)
-    neg_score = pred(X, neg_hg)
+    pos_scores = pred(X, pos_hg)
+    neg_scores = pred(X, neg_hg)
 
     global device
-    scores = torch.cat([pos_score, neg_score]).squeeze()
+    scores = torch.cat([pos_scores, neg_scores]).squeeze()
     labels = torch.cat(
-        [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])]
+        [torch.ones(pos_scores.shape[0]), torch.zeros(neg_scores.shape[0])]
     ).to(device)
 
+    # 贝叶斯个性化排序损失
+    # bpr = BPRLoss()
+    # loss = bpr(pos_scores, neg_scores)
+    # 交叉熵损失
     loss = F.binary_cross_entropy(scores, labels)
     loss.backward()
     optimizer.step()
@@ -129,7 +136,7 @@ def load_data(file_path: Path, ratio: float=0.5, data_balance: bool=True):
     return {"msg_pass": msg_pass_data, "pos": pos_data, "neg": neg_data, "vertices_feature": features, "num_vertices": features.shape[0]}
 
 # %%
-set_seed(2021)
+set_seed(2023)
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 evaluator = Evaluator(["auc", "accuracy", "f1_score"], validate_index=1)
 
@@ -172,8 +179,8 @@ num_params = sum(param.numel() for param in net.parameters()) + sum(param.numel(
 print(f"模型参数量：{num_params}")
 
 # %%
-optimizer = optim.Adam(itertools.chain(net.parameters(), pred.parameters()), lr=0.01, weight_decay=5e-4)
-# optimizer = optim.SGD(itertools.chain(net.parameters(), pred.parameters()), lr=0.01, momentum=0.9)
+optimizer = optim.Adam(itertools.chain(net.parameters(), pred.parameters()), lr=0.001, weight_decay=5e-4)
+# optimizer = optim.SGD(itertools.chain(net.parameters(), pred.parameters()), lr=0.001, momentum=0.9)
 
 # %%
 
