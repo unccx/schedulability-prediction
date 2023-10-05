@@ -43,6 +43,7 @@ def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
     pos_score = pred(X, pos_hg)
     neg_score = pred(X, neg_hg)
 
+    global device
     scores = torch.cat([pos_score, neg_score]).squeeze()
     labels = torch.cat(
         [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])]
@@ -62,11 +63,13 @@ def infer(net, pred, X, msg_pass_hg, pos_hg, neg_hg, test=False):
     pos_score = pred(X, pos_hg)
     neg_score = pred(X, neg_hg)
 
+    global device
     scores = torch.cat([pos_score, neg_score]).squeeze()
     labels = torch.cat(
         [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])]
     ).to(device)
 
+    global evaluator
     if not test:
         res = evaluator.validate(labels, scores)
     else:
@@ -130,9 +133,9 @@ set_seed(2021)
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 evaluator = Evaluator(["auc", "accuracy", "f1_score"], validate_index=1)
 
-train_data =    load_data(Path("../EDF/data/data_s3003_p3_t1000_hs7_e20000/"))
-validate_data = load_data(Path("../EDF/data/data_s3004_p3_t1000_hs7_e20000/"))
-test_data =     load_data(Path("../EDF/data/data_s3005_p3_t1000_hs7_e20000/"))
+train_data =    load_data(Path("../EDF/data/data_s4000_p3_t1000_hs7_e20000/"))
+validate_data = load_data(Path("../EDF/data/data_s4001_p3_t1000_hs7_e20000/"))
+test_data =     load_data(Path("../EDF/data/data_s4002_p3_t1000_hs7_e20000/"))
 
 print("已加载数据")
 
@@ -162,15 +165,15 @@ print("已建立超图")
 in_channels = train_X.shape[1]
 hid_channels = 64
 out_channels = 32
-net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True)
+net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
 pred = ScorePredictor(out_channels)
-
 
 num_params = sum(param.numel() for param in net.parameters()) + sum(param.numel() for param in pred.parameters())
 print(f"模型参数量：{num_params}")
 
 # %%
 optimizer = optim.Adam(itertools.chain(net.parameters(), pred.parameters()), lr=0.01, weight_decay=5e-4)
+# optimizer = optim.SGD(itertools.chain(net.parameters(), pred.parameters()), lr=0.01, momentum=0.9)
 
 # %%
 
@@ -242,7 +245,7 @@ print("正在训练模型...")
 
 best_state = None
 best_epoch, best_val = 0, 0
-for epoch in range(500):
+for epoch in range(5000):
     # train
     train(net, pred, train_X, train_msg_pass_HG, train_pos_HG, train_neg_HG, optimizer, epoch)
     # validation
