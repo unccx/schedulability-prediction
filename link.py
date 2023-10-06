@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.utils.tensorboard import SummaryWriter
 
 from dhg.nn import BPRLoss
 from dhg import Hypergraph
@@ -47,11 +48,15 @@ def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
     pos_scores = pred(X, pos_hg)
     neg_scores = pred(X, neg_hg)
 
-    global device
+    global device, writer 
     scores = torch.cat([pos_scores, neg_scores]).squeeze()
     labels = torch.cat(
         [torch.ones(pos_scores.shape[0]), torch.zeros(neg_scores.shape[0])]
     ).to(device)
+
+    if epoch % 20 == 0:
+        writer["score"].add_histogram("Score/pos", pos_scores, epoch)
+        writer["score"].add_histogram("Score/neg", neg_scores, epoch)
 
     # 贝叶斯个性化排序损失
     # bpr = BPRLoss()
@@ -90,7 +95,7 @@ def infer(net, pred, X, msg_pass_hg, pos_hg, neg_hg, test=False):
 import csv
 from pathlib import Path
 
-def load_data(file_path: Path, ratio: float=0.5, data_balance: bool=True):
+def load_data(file_path: Path, ratio: float=0.7, data_balance: bool=True):
     hyperedge_list = []
     neg_hyperedge_list = []
     with open(file_path / "hyperedges.csv", "r") as file:
@@ -110,7 +115,7 @@ def load_data(file_path: Path, ratio: float=0.5, data_balance: bool=True):
     # 获取后ratio比例的元素作为监督边的列表
     pos_hyperedge_list = hyperedge_list[split_pos:]
 
-    with open(file_path / "negative_samples.csv", "r") as file:
+    with open(file_path / "minimal_unschedulable_combinations.csv", "r") as file:
         reader = csv.reader(file)
         for row in reader:
             neg_hyperedge_list.append(row) 
@@ -141,11 +146,11 @@ def load_data(file_path: Path, ratio: float=0.5, data_balance: bool=True):
 # %%
 set_seed(2023)
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-evaluator = Evaluator(["auc", "accuracy", "f1_score"], validate_index=1)
 
-train_data =    load_data(Path("../EDF/data/data_s4000_p3_t1000_hs7_e20000/"))
-validate_data = load_data(Path("../EDF/data/data_s4001_p3_t1000_hs7_e20000/"))
-test_data =     load_data(Path("../EDF/data/data_s4002_p3_t1000_hs7_e20000/"))
+data_balance = True
+train_data =    load_data(Path("../EDF/data/data_s5000_p3_t1000_hs7_e20000/"), data_balance=data_balance)
+validate_data = load_data(Path("../EDF/data/data_s5001_p3_t1000_hs7_e20000/"), data_balance=data_balance)
+test_data =     load_data(Path("../EDF/data/data_s5002_p3_t1000_hs7_e20000/"), data_balance=data_balance)
 
 print("已加载数据")
 
@@ -172,6 +177,10 @@ test_neg_HG      = Hypergraph(test_data["num_vertices"], test_data["neg"]["hyper
 print("已建立超图")
 
 # %%
+
+evaluator = Evaluator(["auc", "accuracy", "f1_score"], validate_index=1)
+epochs = 2000
+
 in_channels = train_X.shape[1]
 hid_channels = 64
 out_channels = 32
@@ -181,8 +190,7 @@ pred = ScorePredictor(out_channels)
 num_params = sum(param.numel() for param in net.parameters()) + sum(param.numel() for param in pred.parameters())
 print(f"模型参数量：{num_params}")
 
-# %%
-optimizer = optim.Adam(itertools.chain(net.parameters(), pred.parameters()), lr=0.001, weight_decay=5e-4)
+optimizer = optim.Adam(itertools.chain(net.parameters(), pred.parameters()), lr=3e-4, weight_decay=5e-4)
 # optimizer = optim.SGD(itertools.chain(net.parameters(), pred.parameters()), lr=0.001, momentum=0.9)
 
 # %%
@@ -234,16 +242,24 @@ print(f"pred: {next(pred.parameters()).device}")
 
 print("正在训练模型...")
 
+writer = {
+    "train": SummaryWriter("./logs/train_loss"),
+    "validate": SummaryWriter("./logs/validate_loss"),
+    "score": SummaryWriter("./logs/score")
+}
 best_state = None
 best_epoch, best_val = 0, 0
-with tqdm.trange(5000) as tq:
+with tqdm.trange(epochs) as tq:
     for epoch in tq:
         # train
         train_loss = train(net, pred, train_X, train_msg_pass_HG, train_pos_HG, train_neg_HG, optimizer, epoch)
+        writer["train"].add_scalar("Loss", train_loss, epoch)
         # validation
         if epoch % 1 == 0:
             with torch.no_grad(): 
                 val_res, val_loss = infer(net, pred, validate_X, validate_msg_pass_HG, validate_pos_HG, validate_neg_HG)
+                writer["validate"].add_scalar("Loss", val_loss, epoch)
+                writer["validate"].add_scalar("Accuracy", val_res, epoch)
             if val_res > best_val:
                 # print(f"update best: {val_res:.5f}")
                 best_epoch = epoch
@@ -254,11 +270,13 @@ with tqdm.trange(5000) as tq:
                 "best_epoch": f"{best_epoch}",
                 "best_val": f"{best_val:.5f}",
                 "train_loss": f"{train_loss:.5f}",
+                "val_loss": f"{val_loss:.5f}",
                 "validate_res": f"{val_res:.5f}",
             },
             refresh=False,
         )
 
+[getattr(writer[key], "flush")() for key in writer] # writer.flush()
 print("\ntrain finished!")
 print(f"best val: {best_val:.5f}")
 
@@ -270,3 +288,4 @@ if not (best_val == 0 or best_state):
 test_res, test_loss = infer(net, pred, test_X, test_msg_pass_HG, test_pos_HG, test_neg_HG, test=True)
 print(f"final result: epoch: {best_epoch}")
 print(test_res)
+[getattr(writer[key], "close")() for key in writer] # writer.close()
