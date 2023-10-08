@@ -19,7 +19,7 @@ from dhg.nn import BPRLoss
 from dhg import Hypergraph
 from dhg.random import set_seed
 from dhg.metrics import LinkPredictionEvaluator as Evaluator
-from model import HGNNP, ScorePredictor, UniGCN, UniGAT, UniSAGE, UniGIN
+from model import *
 
 # %%
 import numpy as np
@@ -36,11 +36,10 @@ def calculate_sparsity(matrix):
 
 # calculate_sparsity(HG.H.to_dense().cpu().numpy())
 
-bpr = BPRLoss()
-
 # %%
 def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
     net.train()
+    pred.train()
 
     st = time.time()
     optimizer.zero_grad()
@@ -54,13 +53,17 @@ def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
         [torch.ones(pos_scores.shape[0]), torch.zeros(neg_scores.shape[0])]
     ).to(device)
 
-    if epoch % 20 == 0:
+    eval_res = evaluator.validate(labels, scores)
+    writer["train"].add_scalar("Accuracy", eval_res, epoch)
+
+    if epoch % 50 == 0:
         writer["score"].add_histogram("Score/pos", pos_scores, epoch)
         writer["score"].add_histogram("Score/neg", neg_scores, epoch)
 
+    #间隔损失
+    # loss = (1 - pos_scores + neg_scores).clamp(min=0).mean()
     # 贝叶斯个性化排序损失
-    # bpr = BPRLoss()
-    # loss = bpr(pos_scores, neg_scores)
+    # loss = BPRLoss()(pos_scores, neg_scores)
     # 交叉熵损失
     loss = F.binary_cross_entropy(scores, labels)
     loss.backward()
@@ -72,6 +75,7 @@ def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
 @torch.no_grad()
 def infer(net, pred, X, msg_pass_hg, pos_hg, neg_hg, test=False):
     net.eval()
+    pred.eval()
     X = net(X, msg_pass_hg)
     pos_score = pred(X, pos_hg)
     neg_score = pred(X, neg_hg)
@@ -95,7 +99,7 @@ def infer(net, pred, X, msg_pass_hg, pos_hg, neg_hg, test=False):
 import csv
 from pathlib import Path
 
-def load_data(file_path: Path, ratio: float=0.7, data_balance: bool=True):
+def load_data(file_path: Path, ratio: float=0.5, data_balance: bool=True):
     hyperedge_list = []
     neg_hyperedge_list = []
     with open(file_path / "hyperedges.csv", "r") as file:
@@ -148,9 +152,9 @@ set_seed(2023)
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 data_balance = True
-train_data =    load_data(Path("../EDF/data/data_s5000_p3_t1000_hs7_e20000/"), data_balance=data_balance)
-validate_data = load_data(Path("../EDF/data/data_s5001_p3_t1000_hs7_e20000/"), data_balance=data_balance)
-test_data =     load_data(Path("../EDF/data/data_s5002_p3_t1000_hs7_e20000/"), data_balance=data_balance)
+train_data =    load_data(Path("../EDF/data/data_s3000_p3_t1000_hs7_e10000/"), data_balance=data_balance)
+validate_data = load_data(Path("../EDF/data/data_s3001_p3_t1000_hs7_e10000/"), data_balance=data_balance)
+test_data =     load_data(Path("../EDF/data/data_s3002_p3_t1000_hs7_e10000/"), data_balance=data_balance)
 
 print("已加载数据")
 
@@ -243,8 +247,8 @@ print(f"pred: {next(pred.parameters()).device}")
 print("正在训练模型...")
 
 writer = {
-    "train": SummaryWriter("./logs/train_loss"),
-    "validate": SummaryWriter("./logs/validate_loss"),
+    "train": SummaryWriter("./logs/train"),
+    "validate": SummaryWriter("./logs/validate"),
     "score": SummaryWriter("./logs/score")
 }
 best_state = None
