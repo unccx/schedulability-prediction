@@ -21,20 +21,7 @@ from dhg.random import set_seed
 from dhg.metrics import LinkPredictionEvaluator as Evaluator
 from model import *
 
-# %%
-import numpy as np
-
-def calculate_sparsity(matrix):
-    nonzero_elements = np.count_nonzero(matrix)
-    total_elements = matrix.size
-
-    nonzero_ratio = nonzero_elements / total_elements
-    zero_ratio = 1 - nonzero_ratio
-
-    print(f"非零元素比例：{nonzero_ratio:.2%}")
-    print(f"零元素比例：{zero_ratio:.2%}")
-
-# calculate_sparsity(HG.H.to_dense().cpu().numpy())
+from utils import calculate_system_utilization
 
 # %%
 def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
@@ -43,12 +30,12 @@ def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
 
     st = time.time()
     optimizer.zero_grad()
-    X = net(X, msg_pass_hg)
-    pos_scores = pred(X, pos_hg)
-    neg_scores = pred(X, neg_hg)
+    hyperedge_embedding = net(X, msg_pass_hg)
+    pos_scores = pred(hyperedge_embedding, pos_hg).squeeze()
+    neg_scores = pred(hyperedge_embedding, neg_hg).squeeze()
 
     global device, writer 
-    scores = torch.cat([pos_scores, neg_scores]).squeeze()
+    scores = torch.cat([pos_scores, neg_scores])
     labels = torch.cat(
         [torch.ones(pos_scores.shape[0]), torch.zeros(neg_scores.shape[0])]
     ).to(device)
@@ -76,24 +63,39 @@ def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
 def infer(net, pred, X, msg_pass_hg, pos_hg, neg_hg, test=False):
     net.eval()
     pred.eval()
-    X = net(X, msg_pass_hg)
-    pos_score = pred(X, pos_hg)
-    neg_score = pred(X, neg_hg)
+    hyperedge_embedding = net(X, msg_pass_hg)
+    pos_scores = pred(hyperedge_embedding, pos_hg).squeeze()
+    neg_scores = pred(hyperedge_embedding, neg_hg).squeeze()
 
     global device
-    scores = torch.cat([pos_score, neg_score]).squeeze()
+    scores = torch.cat([pos_scores, neg_scores])
     labels = torch.cat(
-        [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])]
+        [torch.ones(pos_scores.shape[0]), torch.zeros(neg_scores.shape[0])]
     ).to(device)
 
-    loss = F.binary_cross_entropy(scores, labels)
+    # # 计算val_loss
+    # loss = F.binary_cross_entropy(scores, labels)
+
+    # # 计算利用率
+    # system_utilization = calculate_system_utilization(X, scores, labels, pos_hg, neg_hg, validate_data["platform"])
+    # writer["score"].add_histogram("System Utilization", system_utilization)
 
     global evaluator
     if not test:
+        # 计算val_loss
+        val_loss = F.binary_cross_entropy(scores, labels)
         eval_res = evaluator.validate(labels, scores)
+        return eval_res, val_loss
     else:
+        # 计算利用率
+        all_system_utilization, pos_utilization, neg_utilization, correct_utilization = calculate_system_utilization(X, scores, labels, pos_hg, neg_hg, test_data["platform"])
+        writer["utilization"].add_histogram("Utilization/all_system_utilization", all_system_utilization, bins='sturges') # 所有样本（无论分类是否正确）的利用率
+        writer["utilization"].add_histogram("Utilization/pos_utilization", pos_utilization, bins='sturges') # 所有正样本（无论分类是否正确）的利用率
+        writer["utilization"].add_histogram("Utilization/neg_utilization", neg_utilization, bins='sturges') # 所有负样本（无论分类是否正确）的利用率
+        writer["utilization"].add_histogram("Utilization/correct_utilization", correct_utilization, bins='sturges') # 所有分类正确的样本的利用率
+        
         eval_res = evaluator.test(labels, scores)
-    return eval_res, loss
+        return eval_res
 
 # %%
 import csv
@@ -108,7 +110,7 @@ def load_data(file_path: Path, ratio: float=0.5, data_balance: bool=True):
             # 读取每个超边的顶点列表，并将它们添加到 hyperedge_list 中
             hyperedge_list.append(row)
     
-    # 确保超边顶点的数值是整数形式，便于后续的处理和计算
+    # 确保超边顶点的id数值是整数形式，便于后续的处理和计算
     hyperedge_list = [[int(v) for v in edge] for edge in hyperedge_list]
 
     # 将超图的边分为消息传递边和监督边
@@ -124,7 +126,7 @@ def load_data(file_path: Path, ratio: float=0.5, data_balance: bool=True):
         for row in reader:
             neg_hyperedge_list.append(row) 
 
-    # 确保超边顶点的数值是整数形式，便于后续的处理和计算
+    # 确保超边顶点的id数值是整数形式，便于后续的处理和计算
     neg_hyperedge_list = [[int(v) for v in edge] for edge in neg_hyperedge_list]
 
     with open(file_path / "task_quadruples.csv", 'r') as csvfile:
@@ -133,6 +135,10 @@ def load_data(file_path: Path, ratio: float=0.5, data_balance: bool=True):
 
     # 将数据转换为 Tensor
     features = torch.tensor(features)
+
+    with open(file_path / "platform.csv", "r") as file:
+        reader = csv.reader(file)
+        processor_speeds = [float(speed) for id, speed in reader]
 
     # 处理监督边和负采样边数据不平衡的问题
     if data_balance:
@@ -145,16 +151,23 @@ def load_data(file_path: Path, ratio: float=0.5, data_balance: bool=True):
     pos_data      = {"hyperedge_list": pos_hyperedge_list, "num_edges" : len(pos_hyperedge_list)}
     neg_data      = {"hyperedge_list": neg_hyperedge_list, "num_edges" : len(neg_hyperedge_list)}
 
-    return {"msg_pass": msg_pass_data, "pos": pos_data, "neg": neg_data, "vertices_feature": features, "num_vertices": features.shape[0]}
+    return {
+        "msg_pass": msg_pass_data, 
+        "pos": pos_data, 
+        "neg": neg_data, 
+        "vertices_feature": features, 
+        "num_vertices": features.shape[0],
+        "platform": processor_speeds
+    }
 
 # %%
 set_seed(2023)
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 data_balance = True
-train_data =    load_data(Path("../EDF/data/data_s3000_p3_t1000_hs7_e10000/"), data_balance=data_balance)
-validate_data = load_data(Path("../EDF/data/data_s3001_p3_t1000_hs7_e10000/"), data_balance=data_balance)
-test_data =     load_data(Path("../EDF/data/data_s3002_p3_t1000_hs7_e10000/"), data_balance=data_balance)
+train_data =    load_data(Path("../EDF/data/data_s5000_p3_t1000_hs7_e20000/"), data_balance=data_balance)
+validate_data = load_data(Path("../EDF/data/data_s5001_p3_t1000_hs7_e20000/"), data_balance=data_balance)
+test_data =     load_data(Path("../EDF/data/data_s5002_p3_t1000_hs7_e20000/"), data_balance=data_balance)
 
 print("已加载数据")
 
@@ -183,12 +196,13 @@ print("已建立超图")
 # %%
 
 evaluator = Evaluator(["auc", "accuracy", "f1_score"], validate_index=1)
-epochs = 2000
+epochs = 400
 
 in_channels = train_X.shape[1]
 hid_channels = 64
 out_channels = 32
 net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
+# net = UniGAT(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0, num_heads=8)
 pred = ScorePredictor(out_channels)
 
 num_params = sum(param.numel() for param in net.parameters()) + sum(param.numel() for param in pred.parameters())
@@ -249,7 +263,8 @@ print("正在训练模型...")
 writer = {
     "train": SummaryWriter("./logs/train"),
     "validate": SummaryWriter("./logs/validate"),
-    "score": SummaryWriter("./logs/score")
+    "score": SummaryWriter("./logs/score"),
+    "utilization": SummaryWriter("./logs/utilization")
 }
 best_state = None
 best_epoch, best_val = 0, 0
@@ -289,7 +304,7 @@ print(f"best val: {best_val:.5f}")
 print("test...")
 if not (best_val == 0 or best_state):
     net.load_state_dict(best_state)
-test_res, test_loss = infer(net, pred, test_X, test_msg_pass_HG, test_pos_HG, test_neg_HG, test=True)
+test_res = infer(net, pred, test_X, test_msg_pass_HG, test_pos_HG, test_neg_HG, test=True)
 print(f"final result: epoch: {best_epoch}")
 print(test_res)
 [getattr(writer[key], "close")() for key in writer] # writer.close()
