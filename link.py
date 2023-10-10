@@ -21,7 +21,7 @@ from dhg.random import set_seed
 from dhg.metrics import LinkPredictionEvaluator as Evaluator
 from model import *
 
-from utils import calculate_system_utilization
+from utils import *
 
 # %%
 def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
@@ -54,6 +54,11 @@ def train(net, pred, X, msg_pass_hg, pos_hg, neg_hg, optimizer, epoch):
     # 交叉熵损失
     loss = F.binary_cross_entropy(scores, labels)
     loss.backward()
+
+    # 计算梯度norm
+    grad_norm = compute_gradient_norm(net, pred)
+    writer["train"].add_scalar("Gradient_norm", grad_norm, epoch)
+
     optimizer.step()
     # print(f"Epoch: {epoch}, Time: {time.time()-st:.5f}s, Loss: {loss.item():.5f}")
     return loss.item()
@@ -101,7 +106,7 @@ def infer(net, pred, X, msg_pass_hg, pos_hg, neg_hg, test=False):
 import csv
 from pathlib import Path
 
-def load_data(file_path: Path, ratio: float=0.5, data_balance: bool=True):
+def load_data(file_path: Path, ratio: float=0.3, data_balance: bool=True):
     hyperedge_list = []
     neg_hyperedge_list = []
     with open(file_path / "hyperedges.csv", "r") as file:
@@ -196,11 +201,11 @@ print("已建立超图")
 # %%
 
 evaluator = Evaluator(["auc", "accuracy", "f1_score"], validate_index=1)
-epochs = 400
+epochs = 4000
 
 in_channels = train_X.shape[1]
-hid_channels = 64
-out_channels = 32
+hid_channels = 512
+out_channels = 256
 net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
 # net = UniGAT(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0, num_heads=8)
 pred = ScorePredictor(out_channels)
@@ -208,7 +213,8 @@ pred = ScorePredictor(out_channels)
 num_params = sum(param.numel() for param in net.parameters()) + sum(param.numel() for param in pred.parameters())
 print(f"模型参数量：{num_params}")
 
-optimizer = optim.Adam(itertools.chain(net.parameters(), pred.parameters()), lr=3e-4, weight_decay=5e-4)
+optimizer = optim.Adam(itertools.chain(net.parameters(), pred.parameters()))
+# optimizer = optim.Adam(itertools.chain(net.parameters(), pred.parameters()), lr=3e-4, weight_decay=5e-4)
 # optimizer = optim.SGD(itertools.chain(net.parameters(), pred.parameters()), lr=0.001, momentum=0.9)
 
 # %%

@@ -1,7 +1,9 @@
 import numpy as np
 from dhg import Hypergraph
 import torch
+import torch.nn as nn
 import matplotlib.pyplot as plt
+import itertools
 
 def calculate_sparsity(matrix):
     nonzero_elements = np.count_nonzero(matrix)
@@ -34,3 +36,12 @@ def calculate_system_utilization(X, scores, labels, pos_hg:Hypergraph, neg_hg:Hy
     correct_utilization = all_system_utilization[prediction_correct]
 
     return all_system_utilization.squeeze(), pos_utilization.squeeze(), neg_utilization.squeeze(), correct_utilization.squeeze()
+
+def compute_gradient_norm(net, pred):
+    total_norm = 0
+    parameters = [p for p in itertools.chain(net.parameters(), pred.parameters()) if p.grad is not None and p.requires_grad]
+    for p in parameters:
+        param_norm = p.grad.detach().data.norm(2)
+        total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** 0.5
+    return total_norm
