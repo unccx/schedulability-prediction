@@ -49,7 +49,7 @@ class HGNNP(nn.Module):
             HGNNPConv(hid_channels, out_channels, use_bn=use_bn, is_last=True)
         )
         # self.pred = ScorePredictor(out_channels)
-        self.reset_parameters()
+        # self.reset_parameters()
 
     def reset_parameters(self):
         r"""Initialize learnable parameters.
