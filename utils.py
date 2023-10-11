@@ -39,3 +39,8 @@ def compute_gradient_norm(net, pred):
         total_norm += param_norm.item() ** 2
     total_norm = total_norm ** 0.5
     return total_norm
+
+def collate(batch):
+    transposed = list(zip(*batch))
+    pos_hyperedge_list, neg_hyperedge_list = transposed
+    return list(pos_hyperedge_list), list(neg_hyperedge_list)
