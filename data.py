@@ -7,14 +7,18 @@ import random
 from typing import Union
 
 class LinkPredictDataset(Dataset):
-    def __init__(self, dataset_name:Union[str, Path], root_dir:Path=Path("./../EDF/data"), data_balance: bool=True):
-        self.data_path:Path = self.root_dir / dataset_name
+    def __init__(
+            self, dataset_name:Union[str, Path], 
+            root_dir:Path=Path("./../EDF/data"), 
+            data_balance: bool=True, 
+            ratio:tuple[float, float]=(0.7, 0.3)):
+        self.data_path:Path = root_dir / dataset_name
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.hyperedge_list = self.read_hyperedge_list_from_csv(self.data_path / "hyperedges.csv")
         self.neg_hyperedge_list = self.read_hyperedge_list_from_csv(self.data_path / "negative_samples.csv")
         self.features:torch.Tensor = self.read_features_from_csv(self.data_path / "task_quadruples.csv").to(self.device)
         self.processor_speeds:list[float] = self.read_processor_speed_from_csv(self.data_path / "platform.csv")
-        self.msg_pass_hyperedge_list, self.pos_hyperedge_list = self.split_hyperedge_list(self.hyperedge_list, ratio=(0.7, 0.3))
+        self.msg_pass_hyperedge_list, self.pos_hyperedge_list = self.split_hyperedge_list(self.hyperedge_list, ratio=ratio)
         self.data_balance:bool = data_balance
 
         self.cache = {}
@@ -112,7 +116,8 @@ class LinkPredictDataset(Dataset):
         assert ratio[0] + ratio[1] == 1.0, f"The sum of ratio is not equal to 1."
 
         # 将超图的边分为消息传递边和监督边
-        shuffled_hyperedge_list:list[list[int]] = random.shuffle(hyperedge_list.copy())
+        shuffled_hyperedge_list:list[list[int]] = hyperedge_list.copy()
+        random.shuffle(shuffled_hyperedge_list)
         split_pos = int(len(shuffled_hyperedge_list) * ratio[0]) # 获取前ratio比例的元素作为消息传递边的列表
         msg_pass_hyperedge_list = shuffled_hyperedge_list[:split_pos] # 获取前ratio比例的元素作为消息传递边的列表
         pos_hyperedge_list = shuffled_hyperedge_list[split_pos:] # 获取后ratio比例的元素作为监督边的列表
