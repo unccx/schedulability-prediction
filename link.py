@@ -120,9 +120,10 @@ def infer(net, pred, data_loader, test=False):
 set_seed(2023)
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
-train_set    = LinkPredictDataset("data_s5000_p3_t1000_hs7_e20000", ratio=(0.3, 0.7))
-validate_set = LinkPredictDataset("data_s5001_p3_t1000_hs7_e20000", ratio=(0.3, 0.7))
-test_set     = LinkPredictDataset("data_s5002_p3_t1000_hs7_e20000", ratio=(0.3, 0.7))
+msg_pass_ratio:float = 0.15
+train_set    = LinkPredictDataset("data_s7000_p5_t1000_hs11_e100000", ratio=(msg_pass_ratio, 1-msg_pass_ratio))
+validate_set = LinkPredictDataset("data_s7001_p5_t1000_hs11_e100000", ratio=(msg_pass_ratio, 1-msg_pass_ratio))
+test_set     = LinkPredictDataset("data_s7002_p5_t1000_hs11_e100000", ratio=(msg_pass_ratio, 1-msg_pass_ratio))
 
 print("已加载数据")
 
