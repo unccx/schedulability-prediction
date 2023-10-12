@@ -127,7 +127,7 @@ class LinkPredictDataset(Dataset):
     @property
     def all_system_utilization_distribution(self):
         """all_system_utilization_distribution的shape是(num_pos_e + num_neg_e,)"""
-        all_system_utilization = torch.cat((self.pos_hg_system_utilization_distribution, self.neg_hg_system_utilization_distribution), dim=1)
+        all_system_utilization = torch.cat((self.pos_hg_system_utilization_distribution, self.neg_hg_system_utilization_distribution), dim=0)
         return all_system_utilization
 
     @staticmethod
