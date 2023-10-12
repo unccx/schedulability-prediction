@@ -60,13 +60,13 @@ def train(net, pred, data_loader, optimizer, epoch):
         optimizer.step()
         loss_mean += loss.item() * len(pos_hyperedge)
 
-    # # 计算梯度norm
-    # grad_norm = compute_gradient_norm(net, pred)
-    # writer["train"].add_scalar("Gradient_norm", grad_norm, epoch)
+    # 计算梯度norm
+    grad_norm = compute_gradient_norm(net, pred)
+    writer["train"].add_scalar("Gradient_norm", grad_norm, epoch)
 
-    # # 记录训练Accuracy
-    # eval_res = evaluator.validate(labels, scores)
-    # writer["train"].add_scalar("Accuracy", eval_res, epoch)
+    # 记录训练Accuracy
+    eval_res = evaluator.validate(labels, scores)
+    writer["train"].add_scalar("Accuracy", eval_res, epoch)
 
     # print(f"Epoch: {epoch}, Time: {time.time()-st:.5f}s, Loss: {loss.item():.5f}")
     loss_mean /= len(data_loader.dataset)
@@ -93,8 +93,8 @@ def infer(net, pred, data_loader, test=False):
     global evaluator
     if not test:
         # 记录在验证集上正例和负例的连接分数的分布
-        writer["score"].add_histogram("Score/pos", pos_scores, epoch)
-        writer["score"].add_histogram("Score/neg", neg_scores, epoch)
+        writer["validate"].add_histogram("Score/pos", pos_scores, epoch)
+        writer["validate"].add_histogram("Score/neg", neg_scores, epoch)
 
         # 计算val_loss
         val_loss = F.binary_cross_entropy(scores, labels)
@@ -107,10 +107,10 @@ def infer(net, pred, data_loader, test=False):
             scores,
             labels
             )
-        writer["utilization"].add_histogram("Utilization/all_system_utilization", all_system_utilization, bins='sturges') # 所有样本（无论分类是否正确）的利用率
-        writer["utilization"].add_histogram("Utilization/pos_utilization", pos_utilization, bins='sturges') # 所有正样本（无论分类是否正确）的利用率
-        writer["utilization"].add_histogram("Utilization/neg_utilization", neg_utilization, bins='sturges') # 所有负样本（无论分类是否正确）的利用率
-        writer["utilization"].add_histogram("Utilization/correct_utilization", correct_utilization, bins='sturges') # 所有分类正确的样本的利用率
+        writer["test"].add_histogram("Utilization/all_system_utilization", all_system_utilization, bins='sturges') # 所有样本（无论分类是否正确）的利用率
+        writer["test"].add_histogram("Utilization/pos_utilization", pos_utilization, bins='sturges') # 所有正样本（无论分类是否正确）的利用率
+        writer["test"].add_histogram("Utilization/neg_utilization", neg_utilization, bins='sturges') # 所有负样本（无论分类是否正确）的利用率
+        writer["test"].add_histogram("Utilization/correct_utilization", correct_utilization, bins='sturges') # 所有分类正确的样本的利用率
         
         eval_res = evaluator.test(labels, scores)
         return eval_res
@@ -162,8 +162,7 @@ print("正在训练模型...")
 writer = {
     "train": SummaryWriter("./logs/train"),
     "validate": SummaryWriter("./logs/validate"),
-    "score": SummaryWriter("./logs/score"),
-    "utilization": SummaryWriter("./logs/utilization")
+    "test": SummaryWriter("./logs/test"),
 }
 best_state = None
 best_epoch, best_val = 0, 0
