@@ -1,7 +1,10 @@
 from dhg import Hypergraph
+from data import LinkPredictDataset
 import torch
 import itertools
 import numpy as np
+import matplotlib.pyplot as plt
+
 
 def calculate_sparsity(matrix):
     nonzero_elements = np.count_nonzero(matrix)
@@ -15,21 +18,17 @@ def calculate_sparsity(matrix):
 
 # calculate_sparsity(HG.H.to_dense().cpu().numpy())
 
-def calculate_system_utilization(dataset, scores, labels):
+def calculate_system_utilization(dataset:LinkPredictDataset, scores, labels):
     """计算系统利用率"""
     y_pred = torch.where(scores >= scores.mean(), 1, 0)
     prediction_correct = torch.eq(y_pred, labels)
 
-    normalized_utilization = dataset.X.index_select(dim=1, index=torch.tensor(3).to(torch.device("cuda")))
-    sum_of_normalized_utilization_pos = torch.sparse.mm(dataset.pos_hg.H_T, normalized_utilization)
-    sum_of_normalized_utilization_neg = torch.sparse.mm(dataset.neg_hg.H_T, normalized_utilization)
-    sum_of_normalized_utilization = torch.cat((sum_of_normalized_utilization_pos, sum_of_normalized_utilization_neg), dim=0)
-    all_system_utilization = sum_of_normalized_utilization / dataset.S_m
-    pos_utilization = sum_of_normalized_utilization_pos / dataset.S_m
-    neg_utilization = sum_of_normalized_utilization_neg / dataset.S_m
-    correct_utilization = all_system_utilization[prediction_correct]
+    correct_utilization_distribution = dataset.all_system_utilization_distribution[prediction_correct]
 
-    return all_system_utilization.squeeze(), pos_utilization.squeeze(), neg_utilization.squeeze(), correct_utilization.squeeze()
+    return (dataset.all_system_utilization_distribution, 
+            dataset.pos_hg_system_utilization_distribution, 
+            dataset.neg_hg_system_utilization_distribution, 
+            correct_utilization_distribution)
 
 def compute_gradient_norm(net, pred):
     total_norm = 0
@@ -44,3 +43,13 @@ def collate(batch):
     transposed = list(zip(*batch))
     pos_hyperedge_list, neg_hyperedge_list = transposed
     return list(pos_hyperedge_list), list(neg_hyperedge_list)
+
+def plot_dergee_utilization(hg:Hypergraph):
+    # 绘制节点度数的柱状图
+    degree_values = hg.deg_v
+    plt.bar(range(len(degree_values)), degree_values)
+    plt.xticks(range(len(degree_values)), range(len(degree_values)))
+    plt.xlabel('Utilization')
+    plt.ylabel('Degree')
+    plt.title('Degree Distribution')
+    plt.show()
