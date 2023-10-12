@@ -8,12 +8,17 @@ from typing import Union
 
 class LinkPredictDataset(Dataset):
     def __init__(
-            self, dataset_name:Union[str, Path], 
+            self, dataset_name:Union[str, Path],
             root_dir:Path=Path("./../EDF/data"), 
             data_balance: bool=True, 
-            ratio:tuple[float, float]=(0.7, 0.3)):
+            ratio:tuple[float, float]=(0.7, 0.3),
+            device:torch.device=None
+            ):
         self.data_path:Path = root_dir / dataset_name
-        self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        if device:
+            self.device = device
+        else:
+            self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.hyperedge_list = self.read_hyperedge_list_from_csv(self.data_path / "hyperedges.csv")
         self.neg_hyperedge_list = self.read_hyperedge_list_from_csv(self.data_path / "negative_samples.csv")
         self.features:torch.Tensor = self.read_features_from_csv(self.data_path / "task_quadruples.csv").to(self.device)
@@ -49,6 +54,12 @@ class LinkPredictDataset(Dataset):
     def X(self):
         # return torch.eye(self.num_v) # 不使用任务属性作为节点嵌入向量的初始化。使用one-hot向量
         return self.features
+    
+    @property
+    def original_hg(self):
+        if self.cache.get("original_hg", None) is None:
+            self.cache["original_hg"] = Hypergraph(self.num_v, self.hyperedge_list, device=self.device)
+        return self.cache["original_hg"]
     
     @property
     def msg_pass_hg(self):
@@ -90,6 +101,37 @@ class LinkPredictDataset(Dataset):
             "platform": self.processor_speeds
         }
     
+    @property
+    def normalized_utilization(self):
+        """normalized_utilization的shape是(self.num_v, 1)"""
+        if self.cache.get("normalized_utilization", None) is None:
+            self.cache["normalized_utilization"] = self.X.index_select(dim=1, index=torch.tensor(3).to(self.device))
+        return self.cache["normalized_utilization"]
+    
+    @property
+    def pos_hg_system_utilization_distribution(self):
+        """pos_hg_system_utilization_distribution的shape是(num_pos_e,)"""
+        if self.cache.get("pos_hg_system_utilization_distribution", None) is None:
+            sum_of_normalized_utilization_pos = torch.sparse.mm(self.pos_hg.H_T, self.normalized_utilization).squeeze()
+            self.cache["pos_hg_system_utilization_distribution"] = sum_of_normalized_utilization_pos / self.S_m
+        return self.cache["pos_hg_system_utilization_distribution"]
+
+    @property
+    def neg_hg_system_utilization_distribution(self):
+        """neg_hg_system_utilization_distribution的shape是(num_neg_e,)"""
+        if self.cache.get("neg_hg_system_utilization_distribution", None) is None:
+            sum_of_normalized_utilization_neg = torch.sparse.mm(self.pos_hg.H_T, self.normalized_utilization).squeeze()
+            self.cache["neg_hg_system_utilization_distribution"] = sum_of_normalized_utilization_neg / self.S_m
+        return self.cache["neg_hg_system_utilization_distribution"]
+    
+    @property
+    def all_system_utilization_distribution(self):
+        """all_system_utilization_distribution的shape是(num_pos_e + num_neg_e,)"""
+        all_system_utilization = torch.cat((self.pos_hg_system_utilization_distribution, self.neg_hg_system_utilization_distribution), dim=1)
+        return all_system_utilization
+
+    @staticmethod
+
     @staticmethod
     def read_hyperedge_list_from_csv(file_path: Path):
         with open(file_path, "r") as file:
