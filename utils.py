@@ -22,13 +22,17 @@ def calculate_system_utilization(dataset:LinkPredictDataset, scores, labels):
     """计算系统利用率"""
     y_pred = torch.where(scores >= scores.mean(), 1, 0)
     prediction_correct = torch.eq(y_pred, labels)
+    prediction_error = ~prediction_correct
 
     correct_utilization_distribution = dataset.all_system_utilization_distribution[prediction_correct]
+    error_utilization_distribution = dataset.all_system_utilization_distribution[prediction_error]
 
     return (dataset.all_system_utilization_distribution, 
             dataset.pos_hg_system_utilization_distribution, 
             dataset.neg_hg_system_utilization_distribution, 
-            correct_utilization_distribution)
+            correct_utilization_distribution,
+            error_utilization_distribution
+            )
 
 def compute_gradient_norm(net, pred):
     total_norm = 0
@@ -48,8 +52,14 @@ def plot_dergee_utilization(hg:Hypergraph):
     # 绘制节点度数的柱状图
     degree_values = hg.deg_v
     plt.bar(range(len(degree_values)), degree_values)
-    plt.xticks(range(len(degree_values)), range(len(degree_values)))
     plt.xlabel('Utilization')
     plt.ylabel('Degree')
-    plt.title('Degree Distribution')
+    plt.title('Degree-Utilization Distribution')
     plt.show()
+
+def zero_dergee_num(hg:Hypergraph):
+    zero_dergee_num = 0
+    for dergee in hg.deg_v:
+        if dergee == 0:
+            zero_dergee_num += 1
+    return zero_dergee_num
