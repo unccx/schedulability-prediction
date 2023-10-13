@@ -33,7 +33,7 @@ def train(net, pred, data_loader, optimizer, epoch):
     pred.train()
 
     st = time.time()
-    dataset = data_loader.dataset
+    dataset:LinkPredictDataset = data_loader.dataset
     loss_mean = 0
 
     for pos_hyperedge, neg_hyperedge in data_loader:
@@ -50,15 +50,19 @@ def train(net, pred, data_loader, optimizer, epoch):
             [torch.ones(pos_scores.shape[0]), torch.zeros(neg_scores.shape[0])]
         ).to(device)
 
-        #间隔损失
-        # loss = (1 - pos_scores + neg_scores).clamp(min=0).mean()
-        # 贝叶斯个性化排序损失
-        # loss = BPRLoss()(pos_scores, neg_scores)
-        # 交叉熵损失
-        loss = F.binary_cross_entropy(scores, labels)
+        # loss = (1 - pos_scores + neg_scores).clamp(min=0).mean()  # 间隔损失
+        # loss = BPRLoss()(pos_scores, neg_scores)                  # 贝叶斯个性化排序损失
+        loss = F.binary_cross_entropy(scores, labels)             # 交叉熵损失
         loss.backward()
         optimizer.step()
         loss_mean += loss.item() * len(pos_hyperedge)
+
+    # 记录在训练集上正例和负例的连接分数的分布
+    hyperedge_embedding = net(dataset.X, dataset.msg_pass_hg)
+    pos_scores = pred(hyperedge_embedding, dataset.pos_hg).squeeze()
+    neg_scores = pred(hyperedge_embedding, dataset.neg_hg).squeeze()
+    writer["train"].add_histogram("Score/pos", pos_scores, epoch)
+    writer["train"].add_histogram("Score/neg", neg_scores, epoch)
 
     # 计算梯度norm
     grad_norm = compute_gradient_norm(net, pred)
@@ -92,17 +96,17 @@ def infer(net, pred, data_loader, test=False):
 
     global evaluator
     if not test:
-        # 记录在验证集上正例和负例的连接分数的分布
-        writer["validate"].add_histogram("Score/pos", pos_scores, epoch)
-        writer["validate"].add_histogram("Score/neg", neg_scores, epoch)
-
         # 计算val_loss
         val_loss = F.binary_cross_entropy(scores, labels)
         eval_res = evaluator.validate(labels, scores)
         return eval_res, val_loss
     else:
+        # 记录在测试集上正例和负例的连接分数的分布
+        writer["test"].add_histogram("Score/pos", pos_scores, epoch)
+        writer["test"].add_histogram("Score/neg", neg_scores, epoch)
+
         # 计算利用率
-        all_system_utilization, pos_utilization, neg_utilization, correct_utilization = calculate_system_utilization(
+        all_system_utilization, pos_utilization, neg_utilization, correct_utilization, error_utilization = calculate_system_utilization(
             dataset, 
             scores,
             labels
@@ -111,7 +115,7 @@ def infer(net, pred, data_loader, test=False):
         writer["test"].add_histogram("Utilization/pos_utilization", pos_utilization, bins='sturges') # 所有正样本（无论分类是否正确）的利用率
         writer["test"].add_histogram("Utilization/neg_utilization", neg_utilization, bins='sturges') # 所有负样本（无论分类是否正确）的利用率
         writer["test"].add_histogram("Utilization/correct_utilization", correct_utilization, bins='sturges') # 所有分类正确的样本的利用率
-        
+        writer["test"].add_histogram("Utilization/error_utilization", error_utilization, bins='sturges') # 所有分类错误的样本的利用率
         eval_res = evaluator.test(labels, scores)
         return eval_res
 
@@ -120,7 +124,7 @@ def infer(net, pred, data_loader, test=False):
 set_seed(2023)
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
-msg_pass_ratio:float = 0.15
+msg_pass_ratio:float = 0.5
 train_set    = LinkPredictDataset("data_s7000_p5_t1000_hs11_e100000", ratio=(msg_pass_ratio, 1-msg_pass_ratio))
 validate_set = LinkPredictDataset("data_s7001_p5_t1000_hs11_e100000", ratio=(msg_pass_ratio, 1-msg_pass_ratio))
 test_set     = LinkPredictDataset("data_s7002_p5_t1000_hs11_e100000", ratio=(msg_pass_ratio, 1-msg_pass_ratio))
@@ -130,7 +134,7 @@ print("已加载数据")
 # %%
 
 evaluator = Evaluator(["auc", "accuracy", "f1_score"], validate_index=1)
-epochs = 300
+epochs = 200
 
 batch_sz = 256
 
@@ -139,10 +143,11 @@ validate_loader = DataLoader(validate_set, batch_size=batch_sz, shuffle=False)
 test_loader     = DataLoader(test_set, batch_size=batch_sz, shuffle=False)
 
 in_channels = train_set.feat_dim
-hid_channels = 64
-out_channels = 32
-net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
+hid_channels = 1024
+out_channels = 512
+# net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
 # net = UniGAT(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0, num_heads=8)
+net = UniGCN(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
 pred = ScorePredictor(out_channels)
 
 num_params = sum(param.numel() for param in net.parameters()) + sum(param.numel() for param in pred.parameters())
