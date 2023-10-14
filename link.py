@@ -106,11 +106,11 @@ def infer(net, pred, data_loader, test=False):
         writer["test"].add_histogram("Score/neg", neg_scores, epoch)
 
         # 计算利用率
-        all_system_utilization, pos_utilization, neg_utilization, correct_utilization, error_utilization = calculate_system_utilization(
-            dataset, 
-            scores,
-            labels
-            )
+        (all_system_utilization, 
+         pos_utilization, 
+         neg_utilization, 
+         correct_utilization, 
+         error_utilization) = calculate_system_utilization(dataset, scores,labels)
         writer["test"].add_histogram("Utilization/all_system_utilization", all_system_utilization, bins='sturges') # 所有样本（无论分类是否正确）的利用率
         writer["test"].add_histogram("Utilization/pos_utilization", pos_utilization, bins='sturges') # 所有正样本（无论分类是否正确）的利用率
         writer["test"].add_histogram("Utilization/neg_utilization", neg_utilization, bins='sturges') # 所有负样本（无论分类是否正确）的利用率
