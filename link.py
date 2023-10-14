@@ -57,12 +57,12 @@ def train(net, pred, data_loader, optimizer, epoch):
         optimizer.step()
         loss_mean += loss.item() * len(pos_hyperedge)
 
-    # 记录在训练集上正例和负例的连接分数的分布
-    hyperedge_embedding = net(dataset.X, dataset.msg_pass_hg)
-    pos_scores = pred(hyperedge_embedding, dataset.pos_hg).squeeze()
-    neg_scores = pred(hyperedge_embedding, dataset.neg_hg).squeeze()
-    writer["train"].add_histogram("Score/pos", pos_scores, epoch)
-    writer["train"].add_histogram("Score/neg", neg_scores, epoch)
+    # # 记录在训练集上正例和负例的连接分数的分布
+    # hyperedge_embedding = net(dataset.X, dataset.msg_pass_hg)
+    # pos_scores = pred(hyperedge_embedding, dataset.pos_hg).squeeze()
+    # neg_scores = pred(hyperedge_embedding, dataset.neg_hg).squeeze()
+    # writer["train"].add_histogram("Score/pos", pos_scores, epoch)
+    # writer["train"].add_histogram("Score/neg", neg_scores, epoch)
 
     # 计算梯度norm
     grad_norm = compute_gradient_norm(net, pred)
