@@ -1,38 +1,86 @@
 import torch
 from torch.utils.data import Dataset
+import dhg
 from dhg import Hypergraph
 import csv
 from pathlib import Path
 import random
-from typing import Union
+from typing import Union, List, Dict
+import itertools
 
 class LinkPredictDataset(Dataset):
     def __init__(
             self, dataset_name:Union[str, Path],
             root_dir:Path=Path("./../EDF/data"), 
-            data_balance: bool=True, 
-            ratio:tuple[float, float]=(0.7, 0.3),
-            device:torch.device=None
+            data_balance:bool=True, 
+            portion:Dict={"msg_pass":4, "supervision_pos":4, "validation_pos":1, "test_pos":1}, # 这是消息传递边和监督边的比例
+            phase:str="train",
+            device:torch.device=None,
+            seed:int=2023
             ):
+        assert phase in ["train", "validate", "test"]
+        self.phase = phase
         self.data_path:Path = root_dir / dataset_name
+
         if device:
             self.device = device
         else:
             self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        self.hyperedge_list = self.read_hyperedge_list_from_csv(self.data_path / "hyperedges.csv")
-        self.neg_hyperedge_list = self.read_hyperedge_list_from_csv(self.data_path / "negative_samples.csv")
         self.features:torch.Tensor = self.read_features_from_csv(self.data_path / "task_quadruples.csv").to(self.device)
         self.processor_speeds:list[float] = self.read_processor_speed_from_csv(self.data_path / "platform.csv")
-        self.msg_pass_hyperedge_list, self.pos_hyperedge_list = self.split_hyperedge_list(self.hyperedge_list, ratio=ratio)
-        self.data_balance:bool = data_balance
 
-        self.cache = {}
+        # 在Transductive Setting中
+        # hyperedge_list需要划分为四部分：训练时消息传递超边、训练时监督正例、验证正例、测试正例
+        # negative_sampling需要划分为三部分：               训练时监督负例、验证负例、测试负例
+        self.seed = seed
+        dhg.random.set_seed(self.seed) # 保证导入同一数据集，分别选择不同phase时的划分结果相同，以及后续数据平衡时随机一致
+
+        self.hyperedge_list = self.read_hyperedge_list_from_csv(self.data_path / "hyperedges.csv")
+        negative_sampling = self.read_hyperedge_list_from_csv(self.data_path / "negative_samples.csv")
+
+        # hyperedge_list先划分为两部分：训练时消息传递超边、pos_hyperedge_list（训练时监督正例、验证正例、测试正例）
+        self.portion = portion.copy()
+        partition_sum =  sum(self.portion.values())
+        split_ratios = {key: value / partition_sum for key, value in self.portion.items()}
+        split_ratios = {"msg_pass":split_ratios["msg_pass"], "pos":1-split_ratios["msg_pass"]}
+        msg_pass_hyperedge_list, pos_hyperedge_list = self.split_hyperedge_list(self.hyperedge_list, ratios=split_ratios)
 
         # 处理监督边和负采样边数据不平衡的问题
+        self.data_balance:bool = data_balance
         if self.data_balance:
-            length = min(len(self.neg_hyperedge_list), len(self.pos_hyperedge_list))
-            self.neg_hyperedge_list = random.sample(self.neg_hyperedge_list, length)
-            self.pos_hyperedge_list = random.sample(self.pos_hyperedge_list, length)
+            length = min(len(negative_sampling), len(pos_hyperedge_list))
+            negative_sampling = random.sample(negative_sampling, length)
+            pos_hyperedge_list = random.sample(pos_hyperedge_list, length)
+
+        del self.portion["msg_pass"]
+        partition_sum =  sum(self.portion.values())
+        split_ratios = {key: value / partition_sum for key, value in self.portion.items()}
+
+        # pos_hyperedge_list在与self.neg_hyperedge_list进行数据平衡后，又会划分为三部分。因此不需要在数据集中保存
+        # pos_hyperedge_list划分为三部分：训练时监督正例、验证正例、测试正例
+        (self.train_pos_hyperedge_list, 
+         self.validate_pos_hyperedge_list, 
+         self.test_pos_hyperedge_list) = self.split_hyperedge_list(pos_hyperedge_list, ratios=split_ratios)
+        
+        # self.neg_hyperedge_list划分为三部分：训练时监督负例、验证负例、测试负例
+        (self.train_neg_hyperedge_list, 
+         self.validate_neg_hyperedge_list, 
+         self.test_neg_hyperedge_list) = self.split_hyperedge_list(negative_sampling, ratios=split_ratios)
+
+        if self.phase == "train":
+            self.msg_pass_hyperedge_list = msg_pass_hyperedge_list
+            self.pos_hyperedge_list = self.train_pos_hyperedge_list
+            self.neg_hyperedge_list = self.train_neg_hyperedge_list
+        elif self.phase == "validate":
+            self.msg_pass_hyperedge_list = msg_pass_hyperedge_list + self.train_pos_hyperedge_list
+            self.pos_hyperedge_list = self.validate_pos_hyperedge_list
+            self.neg_hyperedge_list = self.validate_neg_hyperedge_list
+        else: # self.phase == "test"
+            self.msg_pass_hyperedge_list = msg_pass_hyperedge_list + self.train_pos_hyperedge_list + self.validate_pos_hyperedge_list
+            self.pos_hyperedge_list = self.test_pos_hyperedge_list
+            self.neg_hyperedge_list = self.test_neg_hyperedge_list
+
+        self.cache = {}
 
     @property
     def num_v(self):
@@ -131,8 +179,6 @@ class LinkPredictDataset(Dataset):
         return all_system_utilization
 
     @staticmethod
-
-    @staticmethod
     def read_hyperedge_list_from_csv(file_path: Path):
         with open(file_path, "r") as file:
             reader = csv.reader(file)
@@ -154,21 +200,26 @@ class LinkPredictDataset(Dataset):
         return processor_speeds
     
     @staticmethod
-    def split_hyperedge_list(hyperedge_list:list[list[int]], ratio:tuple[float, float]=(0.7, 0.3)):
-        assert ratio[0] + ratio[1] == 1.0, f"The sum of ratio is not equal to 1."
+    def split_hyperedge_list(hyperedge_list:list[list[int]], ratios:Dict) -> List[List[List[int]]]:
+        assert len([v for k, v in ratios.items() if v <= 0 or v >= 1]) == 0
+        assert abs(1 - sum(ratios.values())) < 1e-10, f"The sum of ratio is not equal to 1."
 
-        # 将超图的边分为消息传递边和监督边
         shuffled_hyperedge_list:list[list[int]] = hyperedge_list.copy()
         random.shuffle(shuffled_hyperedge_list)
-        split_pos = int(len(shuffled_hyperedge_list) * ratio[0]) # 获取前ratio比例的元素作为消息传递边的列表
-        msg_pass_hyperedge_list = shuffled_hyperedge_list[:split_pos] # 获取前ratio比例的元素作为消息传递边的列表
-        pos_hyperedge_list = shuffled_hyperedge_list[split_pos:] # 获取后ratio比例的元素作为监督边的列表
-        return msg_pass_hyperedge_list, pos_hyperedge_list
+
+        # 按照ratios的比例计算出划分列表后的右索引
+        ratios = ratios.values()
+        right = [int(len(shuffled_hyperedge_list) * accumulate_ratio) for accumulate_ratio in itertools.accumulate(ratios)]
+        left = [0]+right[:-1]
+        split_lists = []
+        for l, r in zip(left, right):
+            split_lists.append(shuffled_hyperedge_list[l:r])
+
+        # List[int]是超边的类型，List[List[int]]是超边列表的类型，List[List[List[int]]]是以划分成若干份的超边列表为元素的列表
+        return split_lists # 使用序列解包接收划分后的超边列表碎片
 
     def __len__(self):
-        if self.data_balance:
-            return min(len(self.neg_hyperedge_list), len(self.pos_hyperedge_list))
-        return len(self.pos_hyperedge_list)
+        return min(len(self.neg_hyperedge_list), len(self.pos_hyperedge_list))
 
     def __getitem__(self, idx):
         return self.pos_hyperedge_list[idx], self.neg_hyperedge_list[idx]
