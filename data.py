@@ -131,8 +131,6 @@ class LinkPredictDataset(Dataset):
         return all_system_utilization
 
     @staticmethod
-
-    @staticmethod
     def read_hyperedge_list_from_csv(file_path: Path):
         with open(file_path, "r") as file:
             reader = csv.reader(file)
