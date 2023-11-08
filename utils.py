@@ -48,13 +48,15 @@ def collate(batch):
     pos_hyperedge_list, neg_hyperedge_list = transposed
     return list(pos_hyperedge_list), list(neg_hyperedge_list)
 
-def plot_dergee_utilization(hg:Hypergraph):
-    # 绘制节点度数的柱状图
+def plot_dergee_utilization(hg:Hypergraph, title=r'Degree-Utilization'):
+    # 绘制节点度数的图
     degree_values = hg.deg_v
-    plt.bar(range(len(degree_values)), degree_values)
+    # plt.bar(range(len(degree_values)), degree_values)
+    # plt.bar([index * 0.001 for index in range(len(degree_values))], degree_values)
+    plt.scatter([index / len(degree_values) for index in range(len(degree_values))], degree_values)
     plt.xlabel('Utilization')
     plt.ylabel('Degree')
-    plt.title('Degree-Utilization Distribution')
+    plt.title(title)
     plt.show()
 
 def zero_dergee_num(hg:Hypergraph):
