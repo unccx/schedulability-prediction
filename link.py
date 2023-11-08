@@ -134,20 +134,22 @@ print("已加载数据")
 # %%
 
 evaluator = Evaluator(["auc", "accuracy", "f1_score"], validate_index=1)
-epochs = 200
+epochs = 500
 
 batch_sz = 256
+# batch_sz = None
 
 train_loader    = DataLoader(train_set, batch_size=batch_sz, shuffle=True, collate_fn=collate)
 validate_loader = DataLoader(validate_set, batch_size=batch_sz, shuffle=False)
 test_loader     = DataLoader(test_set, batch_size=batch_sz, shuffle=False)
 
 in_channels = train_set.feat_dim
-hid_channels = 1024
-out_channels = 512
+hid_channels = 256
+out_channels = 128
 # net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
-# net = UniGAT(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0, num_heads=8)
+# net = UniGAT(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0, num_heads=4)
 net = UniGCN(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
+# net = HyperGCN(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
 pred = ScorePredictor(out_channels)
 
 num_params = sum(param.numel() for param in net.parameters()) + sum(param.numel() for param in pred.parameters())
