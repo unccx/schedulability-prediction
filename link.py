@@ -1,30 +1,22 @@
-# %%
-import sys
-sys.path.append("../DeepHypergraph/") 
-
-# %%
-import time
-import random
 import itertools
-import tqdm
-from pathlib import Path
+import time
 from copy import deepcopy
 
 import torch
-import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader
-
-from dhg.nn import BPRLoss
+import torch.optim as optim
+import tqdm
 from dhg import Hypergraph
+from dhg.nn import BPRLoss
 from dhg.random import set_seed
-from dhg.metrics import LinkPredictionEvaluator as Evaluator
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard.writer import SummaryWriter
 
+from data import LinkPredictDataset
+from metric import LinkPredictionEvaluator as Evaluator
 from model import *
 from utils import *
-from data import LinkPredictDataset
+
 
 # %%
 def train(net, pred, data_loader, optimizer, epoch):
