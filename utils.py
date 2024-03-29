@@ -1,9 +1,11 @@
-from dhg import Hypergraph
-from data import LinkPredictDataset
-import torch
 import itertools
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from dhg import Hypergraph
+
+from data import LinkPredictDataset
 
 
 def calculate_sparsity(matrix):

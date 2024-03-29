@@ -1,12 +1,10 @@
+import dhg
 import torch
 import torch.nn as nn
-
-import dhg
-from dhg.nn import HGNNPConv
-from dhg.nn import HNHNConv
-from dhg.nn import HyperGCNConv
+from dhg.nn import (HGNNPConv, HNHNConv, HyperGCNConv, MultiHeadWrapper,
+                    UniGATConv, UniGCNConv, UniGINConv, UniSAGEConv)
 from dhg.structure.graphs import Graph
-from dhg.nn import UniGCNConv, UniGATConv, UniSAGEConv, UniGINConv, MultiHeadWrapper
+
 
 class ScorePredictor(nn.Module):
     def __init__(self, embedding_dimension):
@@ -226,7 +224,7 @@ class UniGAT(nn.Module):
         self.multi_head_layer = MultiHeadWrapper(
             num_heads,
             "concat",
-            UniGATConv,
+            UniGATConv, # type: ignore
             in_channels=in_channels,
             out_channels=hid_channels,
             use_bn=use_bn,

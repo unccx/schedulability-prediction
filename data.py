@@ -1,10 +1,12 @@
-import torch
-from torch.utils.data import Dataset
-from dhg import Hypergraph
 import csv
-from pathlib import Path
 import random
-from typing import Union
+from pathlib import Path
+from typing import Optional, Union
+
+import torch
+from dhg import Hypergraph
+from torch.utils.data import Dataset
+
 
 class LinkPredictDataset(Dataset):
     def __init__(
@@ -12,7 +14,7 @@ class LinkPredictDataset(Dataset):
             root_dir:Path=Path("./../EDF/data"), 
             data_balance: bool=True, 
             ratio:tuple[float, float]=(0.7, 0.3),
-            device:torch.device=None
+            device:Optional[torch.device]=None
             ):
         self.data_path:Path = root_dir / dataset_name
         if device:
