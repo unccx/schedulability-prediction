@@ -1,4 +1,4 @@
-name: task_hypergraph
+name: task_hg
 channels:
   - pytorch
   - nvidia
@@ -19,4 +19,5 @@ dependencies:
   - torchaudio 
   - pytorch-cuda>=12.1
   - tqdm
+  - tensorboard
 
