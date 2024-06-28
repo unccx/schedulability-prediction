@@ -199,11 +199,11 @@ class LinkPredictDataset(Dataset):
         return self.cache["neg_hg_system_utilization_distribution"]
 
     def read_hyperedge_list_from_sqlite(self, is_schedulable: bool):
-        tasksets = self.task_db.get_tasksets_dict(
+        values = self.task_db.get_tasksets_dict(
             is_schedulable=is_schedulable, show_progress=True
-        ).keys()
+        ).values()
 
-        hyperedge_list = [[taskinfo.id for taskinfo in taskset] for taskset in tasksets]
+        hyperedge_list = [[taskinfo.id for taskinfo in value[0]] for value in values]
         return hyperedge_list
 
     def read_features_from_sqlite(self):
