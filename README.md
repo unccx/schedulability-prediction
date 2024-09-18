@@ -5,7 +5,8 @@
 
 ## conda/mamba
 ```bash
-conda env create -f .\environment.yml
-conda activate task_hypergraph
-pip install dhg --no-deps
+mamba env create -f .\environment.yml
+conda activate task_hg
+pip install git+https://github.com/unccx/DeepHypergraph.git --no-deps
+pip install git+https://github.com/unccx/simRT.git
 ```

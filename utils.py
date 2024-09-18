@@ -18,23 +18,136 @@ def calculate_sparsity(matrix):
     print(f"非零元素比例：{nonzero_ratio:.2%}")
     print(f"零元素比例：{zero_ratio:.2%}")
 
+
 # calculate_sparsity(HG.H.to_dense().cpu().numpy())
 
-def calculate_system_utilization(dataset:LinkPredictDataset, scores, labels):
+
+def system_utilization_distribution(
+    dataset: LinkPredictDataset, pos_scores: torch.Tensor, neg_scores: torch.Tensor
+):
     """计算系统利用率"""
-    y_pred = torch.where(scores >= scores.mean(), 1, 0)
-    prediction_correct = torch.eq(y_pred, labels)
-    prediction_error = ~prediction_correct
+    scores = torch.cat([pos_scores, neg_scores])
 
-    correct_utilization_distribution = dataset.all_system_utilization_distribution[prediction_correct]
-    error_utilization_distribution = dataset.all_system_utilization_distribution[prediction_error]
+    pos_y_pred = torch.where(pos_scores >= scores.mean(), True, False)
+    neg_y_pred = torch.where(neg_scores < scores.mean(), True, False)
+    pos_histogram = torch.histc(
+        dataset.pos_hg_system_utilizations, bins=10, min=0, max=1
+    )
+    neg_histogram = torch.histc(
+        dataset.neg_hg_system_utilizations, bins=10, min=0, max=1
+    )
 
-    return (dataset.all_system_utilization_distribution, 
-            dataset.pos_hg_system_utilization_distribution, 
-            dataset.neg_hg_system_utilization_distribution, 
-            correct_utilization_distribution,
-            error_utilization_distribution
-            )
+    true_positive_histogram = torch.histc(
+        dataset.pos_hg_system_utilizations[pos_y_pred], bins=10, min=0, max=1
+    )
+    false_negative_histogram = torch.histc(
+        dataset.pos_hg_system_utilizations[~pos_y_pred], bins=10, min=0, max=1
+    )
+    true_negative_histogram = torch.histc(
+        dataset.neg_hg_system_utilizations[neg_y_pred], bins=10, min=0, max=1
+    )
+    false_positive_histogram = torch.histc(
+        dataset.neg_hg_system_utilizations[~neg_y_pred], bins=10, min=0, max=1
+    )
+
+    # 在不同利用率区间可调度的比例
+    schedulable_histogram = torch.histc(
+        dataset.schedulable_hg_system_utilizations, bins=10, min=0, max=1
+    )
+    schedulable_ratio = schedulable_histogram / (schedulable_histogram + neg_histogram)
+    print(f"schedulable_ratio: {schedulable_ratio}")
+
+    # 在不同利用率区间的数据可调度的比例
+    pos_ratio = (true_positive_histogram + false_negative_histogram) / (
+        true_positive_histogram
+        + false_positive_histogram
+        + true_negative_histogram
+        + false_negative_histogram
+    )
+    print(f"pos_ratio: {pos_ratio}")
+
+    # # 在不同利用率区间正确预测为可调度的比例
+    # true_positive_ratios = true_positive_histogram / (pos_histogram)
+    # print(f"true_positive_ratios: {true_positive_ratios}")
+
+    # # 在不同利用率区间错误预测为可调度的比例
+    # false_positive_ratio = false_positive_histogram / pos_histogram
+    # print(f"false_positive_ratio: {false_positive_ratio}")
+
+    # # 在不同利用率区间正确预测为不可调度的比例
+    # true_negative_ratio = true_negative_histogram / neg_histogram
+    # print(f"true_negative_ratio: {true_negative_ratio}")
+
+    # # 在不同利用率区间错误预测为不可调度的比例
+    # false_negative_ratio = false_negative_histogram / neg_histogram
+    # print(f"false_negative_ratio: {false_negative_ratio}")
+
+    # Precision
+    precision = true_positive_histogram / (
+        true_positive_histogram + false_positive_histogram
+    )
+    print(f"precision: {precision}")
+
+    # Recall
+    recall = true_positive_histogram / (
+        true_positive_histogram + false_negative_histogram
+    )
+    print(f"recall: {recall}")
+
+
+def hyperedge_size_distribution(
+    dataset: LinkPredictDataset, pos_scores: torch.Tensor, neg_scores: torch.Tensor
+):
+    """任务集基数分布"""
+    num_core = len(dataset.hgconfig.platform_info.speed_list)
+    scores = torch.cat([pos_scores, neg_scores])
+
+    pos_y_pred = torch.where(pos_scores >= scores.mean(), True, False)
+    neg_y_pred = torch.where(neg_scores < scores.mean(), True, False)
+    pos_histogram = torch.histc(dataset.pos_hg_hyperedge_size, bins=2 * num_core)
+    neg_histogram = torch.histc(dataset.neg_hg_hyperedge_size, bins=2 * num_core)
+
+    true_positive_histogram = torch.histc(
+        dataset.pos_hg_hyperedge_size[pos_y_pred], bins=2 * num_core
+    )
+    false_negative_histogram = torch.histc(
+        dataset.pos_hg_hyperedge_size[~pos_y_pred], bins=2 * num_core
+    )
+    true_negative_histogram = torch.histc(
+        dataset.neg_hg_hyperedge_size[neg_y_pred], bins=2 * num_core
+    )
+    false_positive_histogram = torch.histc(
+        dataset.neg_hg_hyperedge_size[~neg_y_pred], bins=2 * num_core
+    )
+
+    # 在不同任务集基数区间可调度的比例
+    schedulable_histogram = torch.histc(
+        dataset.schedulable_hg_system_utilizations, bins=2 * num_core
+    )
+    schedulable_ratio = schedulable_histogram / (schedulable_histogram + neg_histogram)
+    print(f"schedulable_ratio: {schedulable_ratio}")
+
+    # 在不同任务集基数区间的数据可调度的比例
+    pos_ratio = (true_positive_histogram + false_negative_histogram) / (
+        true_positive_histogram
+        + false_positive_histogram
+        + true_negative_histogram
+        + false_negative_histogram
+    )
+    print(f"pos_ratio: {pos_ratio}")
+
+    # Precision
+    precision = true_positive_histogram / (
+        true_positive_histogram + false_positive_histogram
+    )
+    print(f"precision: {precision}")
+
+    # Recall
+    recall = true_positive_histogram / (
+        true_positive_histogram + false_negative_histogram
+    )
+    print(f"recall: {recall}")
+
 
 def compute_gradient_norm(net, pred):
     total_norm = 0
