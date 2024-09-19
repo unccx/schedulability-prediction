@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from dhg import Hypergraph
 
-from data import LinkPredictDataset
+from dataset import LinkPredictDataset
 
 
 def calculate_sparsity(matrix):
@@ -52,19 +52,19 @@ def system_utilization_distribution(
 
     # 在不同利用率区间可调度的比例
     schedulable_histogram = torch.histc(
-        dataset.schedulable_hg_system_utilizations, bins=10, min=0, max=1
+        dataset.sched_hg_system_utilizations, bins=10, min=0, max=1
     )
     schedulable_ratio = schedulable_histogram / (schedulable_histogram + neg_histogram)
     print(f"schedulable_ratio: {schedulable_ratio}")
 
     # 在不同利用率区间的数据可调度的比例
-    pos_ratio = (true_positive_histogram + false_negative_histogram) / (
+    positive_ratio = (true_positive_histogram + false_negative_histogram) / (
         true_positive_histogram
         + false_positive_histogram
         + true_negative_histogram
         + false_negative_histogram
     )
-    print(f"pos_ratio: {pos_ratio}")
+    print(f"positive_ratio: {positive_ratio}")
 
     # # 在不同利用率区间正确预测为可调度的比例
     # true_positive_ratios = true_positive_histogram / (pos_histogram)
@@ -121,9 +121,7 @@ def hyperedge_size_distribution(
     )
 
     # 在不同任务集基数区间可调度的比例
-    schedulable_histogram = torch.histc(
-        dataset.schedulable_hg_system_utilizations, bins=bins
-    )
+    schedulable_histogram = torch.histc(dataset.sched_hg_system_utilizations, bins=bins)
     schedulable_ratio = schedulable_histogram / (schedulable_histogram + neg_histogram)
     print(f"schedulable_ratio: {schedulable_ratio}")
 
