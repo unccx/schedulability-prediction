@@ -99,30 +99,30 @@ def hyperedge_size_distribution(
     dataset: LinkPredictDataset, pos_scores: torch.Tensor, neg_scores: torch.Tensor
 ):
     """任务集基数分布"""
-    num_core = len(dataset.hgconfig.platform_info.speed_list)
+    bins = 4
     scores = torch.cat([pos_scores, neg_scores])
 
     pos_y_pred = torch.where(pos_scores >= scores.mean(), True, False)
     neg_y_pred = torch.where(neg_scores < scores.mean(), True, False)
-    pos_histogram = torch.histc(dataset.pos_hg_hyperedge_size, bins=2 * num_core)
-    neg_histogram = torch.histc(dataset.neg_hg_hyperedge_size, bins=2 * num_core)
+    pos_histogram = torch.histc(dataset.pos_hg_hyperedge_size, bins=bins)
+    neg_histogram = torch.histc(dataset.neg_hg_hyperedge_size, bins=bins)
 
     true_positive_histogram = torch.histc(
-        dataset.pos_hg_hyperedge_size[pos_y_pred], bins=2 * num_core
+        dataset.pos_hg_hyperedge_size[pos_y_pred], bins=bins
     )
     false_negative_histogram = torch.histc(
-        dataset.pos_hg_hyperedge_size[~pos_y_pred], bins=2 * num_core
+        dataset.pos_hg_hyperedge_size[~pos_y_pred], bins=bins
     )
     true_negative_histogram = torch.histc(
-        dataset.neg_hg_hyperedge_size[neg_y_pred], bins=2 * num_core
+        dataset.neg_hg_hyperedge_size[neg_y_pred], bins=bins
     )
     false_positive_histogram = torch.histc(
-        dataset.neg_hg_hyperedge_size[~neg_y_pred], bins=2 * num_core
+        dataset.neg_hg_hyperedge_size[~neg_y_pred], bins=bins
     )
 
     # 在不同任务集基数区间可调度的比例
     schedulable_histogram = torch.histc(
-        dataset.schedulable_hg_system_utilizations, bins=2 * num_core
+        dataset.schedulable_hg_system_utilizations, bins=bins
     )
     schedulable_ratio = schedulable_histogram / (schedulable_histogram + neg_histogram)
     print(f"schedulable_ratio: {schedulable_ratio}")
@@ -151,30 +151,40 @@ def hyperedge_size_distribution(
 
 def compute_gradient_norm(net, pred):
     total_norm = 0
-    parameters = [p for p in itertools.chain(net.parameters(), pred.parameters()) if p.grad is not None and p.requires_grad]
+    parameters = [
+        p
+        for p in itertools.chain(net.parameters(), pred.parameters())
+        if p.grad is not None and p.requires_grad
+    ]
     for p in parameters:
         param_norm = p.grad.detach().data.norm(2)
         total_norm += param_norm.item() ** 2
-    total_norm = total_norm ** 0.5
+    total_norm = total_norm**0.5
     return total_norm
+
 
 def collate(batch):
     transposed = list(zip(*batch))
     pos_hyperedge_list, neg_hyperedge_list = transposed
     return list(pos_hyperedge_list), list(neg_hyperedge_list)
 
-def plot_dergee_utilization(hg:Hypergraph, title=r'Degree-Utilization'):
+
+def plot_dergee_utilization(hg: Hypergraph, title=r"Degree-Utilization"):
     # 绘制节点度数的图
     degree_values = hg.deg_v
     # plt.bar(range(len(degree_values)), degree_values)
     # plt.bar([index * 0.001 for index in range(len(degree_values))], degree_values)
-    plt.scatter([index / len(degree_values) for index in range(len(degree_values))], degree_values)
-    plt.xlabel('Utilization')
-    plt.ylabel('Degree')
+    plt.scatter(
+        [index / len(degree_values) for index in range(len(degree_values))],
+        degree_values,
+    )
+    plt.xlabel("Utilization")
+    plt.ylabel("Degree")
     plt.title(title)
     plt.show()
 
-def zero_dergee_num(hg:Hypergraph):
+
+def zero_dergee_num(hg: Hypergraph):
     zero_dergee_num = 0
     for dergee in hg.deg_v:
         if dergee == 0:

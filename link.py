@@ -9,13 +9,13 @@ import torch.nn.functional as F
 import torch.optim as optim
 import tqdm
 from dhg import Hypergraph
-from dhg.metrics import LinkPredictionEvaluator as Evaluator
 from dhg.nn import BPRLoss
 from dhg.random import set_seed
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard.writer import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter  # type: ignore
 
 from data import LinkPredictDataset
+from metric import LinkPredictionEvaluator as Evaluator
 from model import *
 from utils import *
 
@@ -27,7 +27,7 @@ def train(net, pred, data_loader, optimizer, epoch):
     pred.train()
 
     st = time.time()
-    dataset:LinkPredictDataset = data_loader.dataset
+    dataset: LinkPredictDataset = data_loader.dataset
     loss_mean = 0
 
     for pos_hyperedge, neg_hyperedge in data_loader:
@@ -46,7 +46,7 @@ def train(net, pred, data_loader, optimizer, epoch):
 
         # loss = (1 - pos_scores + neg_scores).clamp(min=0).mean()  # 间隔损失
         # loss = BPRLoss()(pos_scores, neg_scores)                  # 贝叶斯个性化排序损失
-        loss = F.binary_cross_entropy(scores, labels)             # 交叉熵损失
+        loss = F.binary_cross_entropy(scores, labels)  # 交叉熵损失
         loss.backward()
         optimizer.step()
         loss_mean += loss.item() * len(pos_hyperedge)
@@ -70,6 +70,7 @@ def train(net, pred, data_loader, optimizer, epoch):
     loss_mean /= len(data_loader.dataset)
     return loss_mean
 
+
 # %%
 @torch.no_grad()
 def infer(net, pred, data_loader, test=False):
@@ -78,11 +79,13 @@ def infer(net, pred, data_loader, test=False):
 
     dataset = data_loader.dataset
 
+    start = time.time()
     hyperedge_embedding = net(dataset.X, dataset.msg_pass_hg)
     pos_scores = pred(hyperedge_embedding, dataset.pos_hg).squeeze()
     neg_scores = pred(hyperedge_embedding, dataset.neg_hg).squeeze()
+    end = time.time()
 
-    global device, writer 
+    global device, writer
     scores = torch.cat([pos_scores, neg_scores])
     labels = torch.cat(
         [torch.ones(pos_scores.shape[0]), torch.zeros(neg_scores.shape[0])]
@@ -105,8 +108,11 @@ def infer(net, pred, data_loader, test=False):
         # 在不同任务集基数区间中的性能差异
         hyperedge_size_distribution(dataset, pos_scores, neg_scores)
 
+        print(f"Inference latency: {epoch}, Time: {end-start:.5f}sec.")
+
         eval_res = evaluator.test(labels, scores)  # type: ignore
         return eval_res
+
 
 # %%
 
@@ -117,21 +123,21 @@ print("加载数据中...")
 
 msg_pass_ratio: float = 0.7
 train_set = LinkPredictDataset(
-    dataset_name="2024-03-30_09-10-17",
-    root_dir=Path("../simRT/data"),
+    dataset_name="2024-09-18_15-26-11",
+    root_dir=Path("./data"),
     ratio=(msg_pass_ratio, 1 - msg_pass_ratio),
 )
 # msg_pass_ratio = 0.5
 validate_set = LinkPredictDataset(
-    dataset_name="2024-03-30_10-25-41",
-    root_dir=Path("../simRT/data"),
+    dataset_name="2024-09-18_18-26-51",
+    root_dir=Path("./data"),
     ratio=(msg_pass_ratio, 1 - msg_pass_ratio),
     # data_balance=False,
 )
 # msg_pass_ratio = 0.5
 test_set = LinkPredictDataset(
-    dataset_name="2024-03-30_11-48-46",
-    root_dir=Path("../simRT/data"),
+    dataset_name="2024-09-18_20-05-14",
+    root_dir=Path("./data"),
     ratio=(msg_pass_ratio, 1 - msg_pass_ratio),
     # data_balance=False,
 )
@@ -143,18 +149,19 @@ print("已加载数据")
 evaluator = Evaluator(
     ["auc", "accuracy", "f1_score", "confusion_matrix"], validate_index=1
 )
-epochs = 1000
+epochs = 150
 
-batch_sz = 256
-# batch_sz = None
+batch_sz = 8
 
-train_loader    = DataLoader(train_set, batch_size=batch_sz, shuffle=True, collate_fn=collate)
+train_loader = DataLoader(
+    train_set, batch_size=batch_sz, shuffle=True, collate_fn=collate
+)
 validate_loader = DataLoader(validate_set, batch_size=batch_sz, shuffle=False)
-test_loader     = DataLoader(test_set, batch_size=batch_sz, shuffle=False)
+test_loader = DataLoader(test_set, batch_size=batch_sz, shuffle=False)
 
 in_channels = train_set.feat_dim
-hid_channels = 256
-out_channels = 128
+hid_channels = 1024
+out_channels = 1024
 net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
 # net = UniGAT(
 #     in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0, num_heads=4
@@ -163,14 +170,18 @@ net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
 # net = HyperGCN(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
 pred = ScorePredictor(out_channels)
 
-num_params = sum(param.numel() for param in net.parameters()) + sum(param.numel() for param in pred.parameters())
+num_params = sum(param.numel() for param in net.parameters()) + sum(
+    param.numel() for param in pred.parameters()
+)
 print(f"模型参数量：{num_params}")
 
 # optimizer = optim.Adam(itertools.chain(net.parameters(), pred.parameters()))
 optimizer = optim.Adam(
-    itertools.chain(net.parameters(), pred.parameters()), lr=3e-4, weight_decay=5e-4
+    itertools.chain(net.parameters(), pred.parameters()), lr=0.01, weight_decay=5e-4
 )
-# optimizer = optim.SGD(itertools.chain(net.parameters(), pred.parameters()), lr=0.001, momentum=0.9)
+# optimizer = optim.SGD(
+#     itertools.chain(net.parameters(), pred.parameters()), lr=0.001, momentum=0.9
+# )
 
 # print("正在从cpu转移数据到gpu...")
 net = net.to(device)
@@ -194,7 +205,7 @@ with tqdm.trange(epochs) as tq:
         writer["train"].add_scalar("Loss", train_loss, epoch)
         # validation
         if epoch % 1 == 0:
-            with torch.no_grad(): 
+            with torch.no_grad():
                 val_res, val_loss = infer(net, pred, validate_loader)
                 writer["validate"].add_scalar("Loss", val_loss, epoch)
                 writer["validate"].add_scalar("Accuracy", val_res, epoch)
@@ -214,7 +225,7 @@ with tqdm.trange(epochs) as tq:
             refresh=False,
         )
 
-[getattr(writer[key], "flush")() for key in writer] # writer.flush()
+[getattr(writer[key], "flush")() for key in writer]  # writer.flush()
 print("\ntrain finished!")
 print(f"best val: {best_val:.5f}")
 
@@ -226,4 +237,4 @@ if not (best_val == 0 or best_state):
 test_res = infer(net, pred, test_loader, test=True)
 print(f"final result: epoch: {best_epoch}")
 print(test_res)
-[getattr(writer[key], "close")() for key in writer] # writer.close()
+[getattr(writer[key], "close")() for key in writer]  # writer.close()

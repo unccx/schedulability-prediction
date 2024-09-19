@@ -6,9 +6,10 @@ from typing import Optional, Union
 
 import torch
 from dhg import Hypergraph
-from simRT.core import TaskInfo
-from simRT.generator import HGConfig
-from simRT.utils import TaskStorage
+from simrt.core import TaskInfo
+from simrt.core.processor import PlatformInfo
+from simrt.utils import TaskStorage
+from simrt.utils.task_storage import TaskStorage
 from torch.utils.data import Dataset
 
 
@@ -33,8 +34,9 @@ class LinkPredictDataset(Dataset):
 
         self.data_path: Path = root_dir / dataset_name
         self.task_db = TaskStorage(self.data_path / "data.sqlite")
-        self.hgconfig = HGConfig.from_json(self.data_path / "config.json")
-        self.processor_speeds: list[float] = self.hgconfig.platform_info.speed_list
+        metadata = self.task_db.get_metadata()
+
+        self.platform = PlatformInfo(metadata["speed_list"])
 
         self.hyperedge_list = self.read_hyperedge_list_from_sqlite(is_schedulable=True)
         self.neg_hyperedge_list = self.read_hyperedge_list_from_sqlite(
@@ -42,8 +44,10 @@ class LinkPredictDataset(Dataset):
         )
         self.features: torch.Tensor = self.read_features_from_sqlite().to(self.device)
 
-        self.msg_pass_hyperedge_list, self.pos_hyperedge_list = self.split_hyperedge_list(self.hyperedge_list, ratio=ratio)
-        self.data_balance:bool = data_balance
+        self.msg_pass_hyperedge_list, self.pos_hyperedge_list = (
+            self.split_hyperedge_list(self.hyperedge_list, ratio=ratio)
+        )
+        self.data_balance: bool = data_balance
 
         self.cache = {}
 
@@ -89,30 +93,45 @@ class LinkPredictDataset(Dataset):
     @property
     def msg_pass_hg(self):
         if self.cache.get("msg_pass_hg", None) is None:
-            self.cache["msg_pass_hg"] = Hypergraph(self.num_v, self.msg_pass_hyperedge_list, device=self.device)
+            self.cache["msg_pass_hg"] = Hypergraph(
+                self.num_v, self.msg_pass_hyperedge_list, device=self.device
+            )
         return self.cache["msg_pass_hg"]
 
     @property
     def pos_hg(self):
         if self.cache.get("pos_hg", None) is None:
-            self.cache["pos_hg"] = Hypergraph(self.num_v, self.pos_hyperedge_list, device=self.device)
+            self.cache["pos_hg"] = Hypergraph(
+                self.num_v, self.pos_hyperedge_list, device=self.device
+            )
         return self.cache["pos_hg"]
 
     @property
     def neg_hg(self):
         if self.cache.get("neg_hg", None) is None:
-            self.cache["neg_hg"] = Hypergraph(self.num_v, self.neg_hyperedge_list, device=self.device)
+            self.cache["neg_hg"] = Hypergraph(
+                self.num_v, self.neg_hyperedge_list, device=self.device
+            )
         return self.cache["neg_hg"]
 
     @property
     def S_m(self):
-        return self.hgconfig.platform_info.S_m
+        return self.platform.S_m
 
     @property
     def data(self):
-        msg_pass_data = {"hyperedge_list": self.msg_pass_hyperedge_list, "num_edges" : len(self.msg_pass_hyperedge_list)}
-        pos_data      = {"hyperedge_list": self.pos_hyperedge_list, "num_edges" : len(self.pos_hyperedge_list)}
-        neg_data      = {"hyperedge_list": self.neg_hyperedge_list, "num_edges" : len(self.neg_hyperedge_list)}
+        msg_pass_data = {
+            "hyperedge_list": self.msg_pass_hyperedge_list,
+            "num_edges": len(self.msg_pass_hyperedge_list),
+        }
+        pos_data = {
+            "hyperedge_list": self.pos_hyperedge_list,
+            "num_edges": len(self.pos_hyperedge_list),
+        }
+        neg_data = {
+            "hyperedge_list": self.neg_hyperedge_list,
+            "num_edges": len(self.neg_hyperedge_list),
+        }
 
         return {
             "msg_pass": msg_pass_data,
@@ -120,7 +139,7 @@ class LinkPredictDataset(Dataset):
             "neg": neg_data,
             "vertices_feature": self.features,
             "num_vertices": self.num_v,
-            "platform": self.processor_speeds
+            "platform": self.platform,
         }
 
     @property
@@ -227,15 +246,20 @@ class LinkPredictDataset(Dataset):
         return torch.tensor(features)
 
     @staticmethod
-    def split_hyperedge_list(hyperedge_list:list[list[int]], ratio:tuple[float, float]=(0.7, 0.3)):
+    def split_hyperedge_list(
+        hyperedge_list: list[list[int]], ratio: tuple[float, float] = (0.7, 0.3)
+    ):
         assert ratio[0] + ratio[1] == 1.0, f"The sum of ratio is not equal to 1."
 
         # 将超图的边分为消息传递边和监督边
-        shuffled_hyperedge_list:list[list[int]] = hyperedge_list.copy()
+        shuffled_hyperedge_list: list[list[int]] = hyperedge_list.copy()
         random.shuffle(shuffled_hyperedge_list)
-        split_pos = int(len(shuffled_hyperedge_list) * ratio[0]) # 获取前ratio比例的元素作为消息传递边的列表
-        msg_pass_hyperedge_list = shuffled_hyperedge_list[:split_pos] # 获取前ratio比例的元素作为消息传递边的列表
-        pos_hyperedge_list = shuffled_hyperedge_list[split_pos:] # 获取后ratio比例的元素作为监督边的列表
+        # 获取前ratio比例的元素作为消息传递边的列表
+        split_pos = int(len(shuffled_hyperedge_list) * ratio[0])
+        # 获取前ratio比例的元素作为消息传递边的列表
+        msg_pass_hyperedge_list = shuffled_hyperedge_list[:split_pos]
+        # 获取后ratio比例的元素作为监督边的列表
+        pos_hyperedge_list = shuffled_hyperedge_list[split_pos:]
         return msg_pass_hyperedge_list, pos_hyperedge_list
 
     def __len__(self):
