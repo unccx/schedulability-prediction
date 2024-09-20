@@ -8,6 +8,7 @@ VSCODE_INJECTION=*
 WAYLAND_DISPLAY=*
 LANG=*
 USER=*
+DISPLAY=:0
 *.svg
 
 # Byte-compiled / optimized / DLL files
