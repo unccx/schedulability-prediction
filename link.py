@@ -79,11 +79,27 @@ def infer(net, pred, data_loader, test=False):
 
     dataset = data_loader.dataset
 
-    start = time.time()
-    hyperedge_embedding = net(dataset.X, dataset.msg_pass_hg)
-    pos_scores = pred(hyperedge_embedding, dataset.pos_hg).squeeze()
-    neg_scores = pred(hyperedge_embedding, dataset.neg_hg).squeeze()
-    end = time.time()
+    if test:
+        dataset.X.to(torch.device("cpu"))
+        dataset.msg_pass_hg.to(torch.device("cpu"))
+        dataset.pos_hg.to(torch.device("cpu"))
+        dataset.neg_hg.to(torch.device("cpu"))
+        start = time.time()
+        dataset.X.to(torch.device("cuda"))
+        dataset.msg_pass_hg.to(torch.device("cuda"))
+        dataset.pos_hg.to(torch.device("cuda"))
+        dataset.neg_hg.to(torch.device("cuda"))
+        inter = time.time()
+        hyperedge_embedding = net(dataset.X, dataset.msg_pass_hg)
+        pos_scores = pred(hyperedge_embedding, dataset.pos_hg).squeeze()
+        neg_scores = pred(hyperedge_embedding, dataset.neg_hg).squeeze()
+        end = time.time()
+        print(f"cpu to cuda latency: {epoch}, Time: {inter-start:.5f}sec.")
+        print(f"Inference latency: {epoch}, Time: {end-inter:.5f}sec.")
+    else:
+        hyperedge_embedding = net(dataset.X, dataset.msg_pass_hg)
+        pos_scores = pred(hyperedge_embedding, dataset.pos_hg).squeeze()
+        neg_scores = pred(hyperedge_embedding, dataset.neg_hg).squeeze()
 
     global device, writer
     scores = torch.cat([pos_scores, neg_scores])
@@ -149,7 +165,7 @@ print("已加载数据")
 evaluator = Evaluator(
     ["auc", "accuracy", "f1_score", "confusion_matrix"], validate_index=1
 )
-epochs = 150
+epochs = 10
 
 batch_sz = 8
 

@@ -9,20 +9,36 @@ from simrt.core.processor import PlatformInfo
 from simrt.core.task import PeriodicTask, TaskInfo
 from simrt.generator.task_factory import UtilizationGenerationAlgorithm
 from simrt.generator.taskset_generator import (
+    Taskset,
     TasksetFactory,
     TasksetGenerator,
     TaskSubsetFactory,
 )
 from simrt.utils.schedulability_analyzer import SchedulabilityAnalyzer
-from simrt.utils.schedulability_test import ExactTest, TestFactory
+from simrt.utils.schedulability_test import ExactTest, SimulationTest, TestFactory
 from simrt.utils.schedulability_test_executor import (
     ParallelStrategy,
+    PersistenceStrategy,
     SchedulabilityTestExecutor,
     SerialStrategy,
     SqlitePersistence,
 )
 from simrt.utils.task_storage import TaskStorage
 from tqdm import trange
+
+
+class NotPersistence(PersistenceStrategy):
+    def connect(self) -> None:
+        pass
+
+    def save_task(self, task: TaskInfo) -> None:
+        pass
+
+    def save_taskset(self, taskset: Taskset, **kwargs) -> None:
+        pass
+
+    def close(self):
+        pass
 
 
 class GFPTest(ExactTest):
@@ -52,8 +68,8 @@ class GFPTest(ExactTest):
         ]
 
         for taskinfo in Gamma:
-            inputs.append(str(taskinfo.wcet))
-            inputs.append(str(taskinfo.period))
+            inputs.append(str(int(taskinfo.wcet)))
+            inputs.append(str(int(taskinfo.period)))
 
         inputs.append("0")  # Dynamically optimize memory usage
         inputs.append("0")  # Verbose
@@ -76,16 +92,18 @@ if __name__ == "__main__":
     analyzer.set_exact_test(
         GFPTest(Path("/home/polyarc/Development/schedulability-prediction/gfp_test_p1"))
     )
+    # analyzer.set_exact_test(SimulationTest(show_progress=True))
     # analyzer.set_sufficient_test(TestFactory.create_test("GlobalEDFTest"))
 
     # 执行策略
-    execution = ParallelStrategy(num_process=20, chunksize=1, show_progress=True)
-    # execution = SerialStrategy()
+    # execution = ParallelStrategy(num_process=20, chunksize=1, show_progress=True)
+    execution = SerialStrategy()
 
     # 数据持久化策略
     current_time = time.localtime()
     formatted_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
-    persistence = SqlitePersistence(data_path=Path(f"./data/") / formatted_time)
+    # persistence = SqlitePersistence(data_path=Path(f"./data/") / formatted_time)
+    persistence = NotPersistence(data_path=Path(f"./data/") / formatted_time)
 
     # 可调度性测试执行器
     executor = SchedulabilityTestExecutor(
@@ -99,10 +117,10 @@ if __name__ == "__main__":
     period_bound = (10, 40)
     num_task = 2000
 
-    task_db = TaskStorage(Path(f"./data/") / formatted_time / "data.sqlite")
-    task_db.insert_metadata(platform.speed_list, period_bound, num_task)
-    task_db.commit()
-    task_db.close()
+    # task_db = TaskStorage(Path(f"./data/") / formatted_time / "data.sqlite")
+    # task_db.insert_metadata(platform.speed_list, period_bound, num_task)
+    # task_db.commit()
+    # task_db.close()
 
     generator = (
         TasksetGenerator()
@@ -125,8 +143,18 @@ if __name__ == "__main__":
                 num_task=taskset_size, system_utilization=random.random()
             )
             tasksets.append(taskset)
+
+    # num_taskset = 1000
+    # for _ in range(num_taskset):
+    #     taskset = generator.generate_taskset(
+    #         num_task=8, system_utilization=random.random()
+    #     )
+    #     tasksets.append(taskset)
     random.shuffle(tasksets)
     print("任务集生成完毕")
 
     # 并行测试大量数据集的可调度性
+    start = time.time()
     executor.execute(tasksets, platform)
+    end = time.time()
+    print(f"average Time: {(end-start)/num_taskset:.5f}sec.")
