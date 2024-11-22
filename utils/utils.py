@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from dhg import Hypergraph
 
-from dataset import LinkPredictDataset
+from data.dataset import LinkPredictDataset
 
 
 def calculate_sparsity(matrix):
@@ -147,24 +147,27 @@ def hyperedge_size_distribution(
     print(f"recall: {recall}")
 
 
-def compute_gradient_norm(net, pred):
+def compute_gradient_norm(model):
     total_norm = 0
-    parameters = [
-        p
-        for p in itertools.chain(net.parameters(), pred.parameters())
-        if p.grad is not None and p.requires_grad
-    ]
-    for p in parameters:
-        param_norm = p.grad.detach().data.norm(2)
+    for p in model.parameters():
+        param_norm = p.grad.data.norm(2)
         total_norm += param_norm.item() ** 2
-    total_norm = total_norm**0.5
+    total_norm = total_norm ** (1.0 / 2)
     return total_norm
 
 
-def collate(batch):
+def collate(batch, num_v=None, device=torch.device("cpu")):
     transposed = list(zip(*batch))
     pos_hyperedge_list, neg_hyperedge_list = transposed
-    return list(pos_hyperedge_list), list(neg_hyperedge_list)
+
+    if num_v is None:
+        return list(pos_hyperedge_list), list(neg_hyperedge_list)
+    else:
+        pos_hg = Hypergraph(num_v, list(pos_hyperedge_list))
+        neg_hg = Hypergraph(num_v, list(neg_hyperedge_list))
+        pos_hg_H = pos_hg.H.to_dense()
+        neg_hg_H = neg_hg.H.to_dense()
+        return pos_hg_H, neg_hg_H
 
 
 def plot_dergee_utilization(hg: Hypergraph, title=r"Degree-Utilization"):

@@ -1,0 +1,1 @@
+from .HGNNP import HGNNPSchedulabilityPredictor

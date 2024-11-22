@@ -10,30 +10,29 @@ package-mode = false
 python = "^3.10"
 jupyter = "^1.1.1"
 tqdm = "^4.66.5"
+fire = "^0.7.0"
+# torch = {version = "^2.5.1+cu124", source = "torch_cuda"}
+# torchvision = {version = "^0.20.1+cu124", source = "torch_cuda"}
+# torchaudio = {version = "^2.5.1+cu124", source = "torch_cuda"}
+torch = "^2.5"
+# torchvision = "^0.20"
+# torchaudio = "^2.5"
 simrt = {git = "https://github.com/unccx/SimRT.git"}
 dhg = {git = "https://github.com/unccx/DeepHypergraph.git"}
-torch = {version = "^2.4.1+cu118", source = "torch_cu118"}
-torchvision = {version = "^0.19.1+cu118", source = "torch_cu118"}
-torchaudio = {version = "^2.4.1+cu118", source = "torch_cu118"}
 tensorboard = "^2.17.1"
 torch-tb-profiler = "^0.4.3"
+onnx = "^1.17.0"
 
-[[tool.poetry.source]]
-name = "torch_cu121"
-url = "https://download.pytorch.org/whl/cu121"
-priority = "explicit"
-
-
-[[tool.poetry.source]]
-name = "torch_cu124"
-url = "https://download.pytorch.org/whl/cu124"
-priority = "explicit"
+# [[tool.poetry.source]]
+# name = "torch_cuda"
+# url = "https://download.pytorch.org/whl/cu124"
+# priority = "explicit"
 
 
 [[tool.poetry.source]]
-name = "torch_cu118"
-url = "https://download.pytorch.org/whl/cu118"
-priority = "explicit"
+name = "mirrors"
+url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"
+priority = "primary"
 
 [build-system]
 requires = ["poetry-core"]

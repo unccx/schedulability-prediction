@@ -22,7 +22,7 @@ from simrt.utils.schedulability_test_executor import (
     SqlitePersistence,
 )
 from simrt.utils.task_storage import TaskStorage
-from tqdm import trange
+from tqdm import tqdm, trange
 
 
 class GFPTest(ExactTest):
@@ -73,10 +73,12 @@ class GFPTest(ExactTest):
 if __name__ == "__main__":
     # 可调度性分析器
     analyzer = SchedulabilityAnalyzer()
-    analyzer.set_exact_test(
-        GFPTest(Path("/home/polyarc/Development/schedulability-prediction/gfp_test_p1"))
-    )
-    # analyzer.set_sufficient_test(TestFactory.create_test("GlobalEDFTest"))
+    # analyzer.set_exact_test(
+    #     GFPTest(Path("/home/polyarc/Development/schedulability-prediction/gfp_test_p1"))
+    # )
+    # analyzer.set_sufficient_test(TestFactory.create_test("GlobalFPTest"))
+    analyzer.set_exact_test(TestFactory.create_test("SimulationTest", cutoff=1000000))
+    analyzer.set_sufficient_test(TestFactory.create_test("GlobalEDFTest"))
 
     # 执行策略
     execution = ParallelStrategy(num_process=20, chunksize=1, show_progress=True)
@@ -95,7 +97,7 @@ if __name__ == "__main__":
     )
 
     # 数据集生成器
-    platform = PlatformInfo([1, 1, 1, 1])
+    platform = PlatformInfo([4, 3, 2, 1])
     period_bound = (10, 40)
     num_task = 2000
 
@@ -117,13 +119,11 @@ if __name__ == "__main__":
 
     # 生成数据集
     # totol_num_taskset = 20000
+
     tasksets = []
-    num_core = len(platform.speed_list)
     for taskset_size in range(5, 9):
-        for _ in range(5000):
-            taskset = generator.generate_taskset(
-                num_task=taskset_size, system_utilization=random.random()
-            )
+        for i in range(20000):
+            taskset = generator.generate_taskset(num_task=taskset_size)
             tasksets.append(taskset)
     random.shuffle(tasksets)
     print("任务集生成完毕")

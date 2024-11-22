@@ -1,8 +1,16 @@
 import dhg
 import torch
 import torch.nn as nn
-from dhg.nn import (HGNNPConv, HNHNConv, HyperGCNConv, MultiHeadWrapper,
-                    UniGATConv, UniGCNConv, UniGINConv, UniSAGEConv)
+from dhg.nn import (
+    HGNNPConv,
+    HNHNConv,
+    HyperGCNConv,
+    MultiHeadWrapper,
+    UniGATConv,
+    UniGCNConv,
+    UniGINConv,
+    UniSAGEConv,
+)
 from dhg.structure.graphs import Graph
 
 
@@ -18,6 +26,7 @@ class ScorePredictor(nn.Module):
         score = self.linear(hyperedge_embedding)
         score = self.act(score)
         return score
+
 
 class HGNNP(nn.Module):
     r"""The HGNN :sup:`+` model proposed in `HGNN+: General Hypergraph Neural Networks <https://ieeexplore.ieee.org/document/9795251>`_ paper (IEEE T-PAMI 2022).
@@ -50,8 +59,7 @@ class HGNNP(nn.Module):
         # self.reset_parameters()
 
     def reset_parameters(self):
-        r"""Initialize learnable parameters.
-        """
+        r"""Initialize learnable parameters."""
         for layer in self.layers:
             nn.init.kaiming_uniform_(layer.theta.weight)
             nn.init.constant_(layer.theta.bias, 0)
@@ -67,7 +75,8 @@ class HGNNP(nn.Module):
             X = layer(X, hg)
 
         return X
-    
+
+
 class HNHN(nn.Module):
     r"""The HNHN model proposed in `HNHN: Hypergraph Networks with Hyperedge Neurons <https://arxiv.org/pdf/2006.12278.pdf>`_ paper (ICML 2020).
 
@@ -106,10 +115,11 @@ class HNHN(nn.Module):
         for layer in self.layers:
             X = layer(X, hg)
         return X
-    
+
+
 class HyperGCN(nn.Module):
     r"""The HyperGCN model proposed in `HyperGCN: A New Method of Training Graph Convolutional Networks on Hypergraphs <https://papers.nips.cc/paper/2019/file/1efa39bcaec6f3900149160693694536-Paper.pdf>`_ paper (NeurIPS 2019).
-    
+
     Args:
         ``in_channels`` (``int``): :math:`C_{in}` is the number of input channels.
         ``hid_channels`` (``int``): :math:`C_{hid}` is the number of hidden channels.
@@ -136,7 +146,11 @@ class HyperGCN(nn.Module):
         self.layers = nn.ModuleList()
         self.layers.append(
             HyperGCNConv(
-                in_channels, hid_channels, use_mediator, use_bn=use_bn, drop_rate=drop_rate,
+                in_channels,
+                hid_channels,
+                use_mediator,
+                use_bn=use_bn,
+                drop_rate=drop_rate,
             )
         )
         self.layers.append(
@@ -177,12 +191,21 @@ class UniGCN(nn.Module):
     """
 
     def __init__(
-        self, in_channels: int, hid_channels: int, out_channels: int, use_bn: bool = False, drop_rate: float = 0.5,
+        self,
+        in_channels: int,
+        hid_channels: int,
+        out_channels: int,
+        use_bn: bool = False,
+        drop_rate: float = 0.5,
     ) -> None:
         super().__init__()
         self.layers = nn.ModuleList()
-        self.layers.append(UniGCNConv(in_channels, hid_channels, use_bn=use_bn, drop_rate=drop_rate))
-        self.layers.append(UniGCNConv(hid_channels, out_channels, use_bn=use_bn, is_last=True))
+        self.layers.append(
+            UniGCNConv(in_channels, hid_channels, use_bn=use_bn, drop_rate=drop_rate)
+        )
+        self.layers.append(
+            UniGCNConv(hid_channels, out_channels, use_bn=use_bn, is_last=True)
+        )
 
     def forward(self, X: torch.Tensor, hg: "dhg.Hypergraph") -> torch.Tensor:
         r"""The forward function.
@@ -224,7 +247,7 @@ class UniGAT(nn.Module):
         self.multi_head_layer = MultiHeadWrapper(
             num_heads,
             "concat",
-            UniGATConv, # type: ignore
+            UniGATConv,  # type: ignore
             in_channels=in_channels,
             out_channels=hid_channels,
             use_bn=use_bn,
@@ -268,12 +291,21 @@ class UniSAGE(nn.Module):
     """
 
     def __init__(
-        self, in_channels: int, hid_channels: int, out_channels: int, use_bn: bool = False, drop_rate: float = 0.5,
+        self,
+        in_channels: int,
+        hid_channels: int,
+        out_channels: int,
+        use_bn: bool = False,
+        drop_rate: float = 0.5,
     ) -> None:
         super().__init__()
         self.layers = nn.ModuleList()
-        self.layers.append(UniSAGEConv(in_channels, hid_channels, use_bn=use_bn, drop_rate=drop_rate))
-        self.layers.append(UniSAGEConv(hid_channels, out_channels, use_bn=use_bn, is_last=True))
+        self.layers.append(
+            UniSAGEConv(in_channels, hid_channels, use_bn=use_bn, drop_rate=drop_rate)
+        )
+        self.layers.append(
+            UniSAGEConv(hid_channels, out_channels, use_bn=use_bn, is_last=True)
+        )
 
     def forward(self, X: torch.Tensor, hg: "dhg.Hypergraph") -> torch.Tensor:
         r"""The forward function.
@@ -313,10 +345,24 @@ class UniGIN(nn.Module):
         super().__init__()
         self.layers = nn.ModuleList()
         self.layers.append(
-            UniGINConv(in_channels, hid_channels, eps=eps, train_eps=train_eps, use_bn=use_bn, drop_rate=drop_rate)
+            UniGINConv(
+                in_channels,
+                hid_channels,
+                eps=eps,
+                train_eps=train_eps,
+                use_bn=use_bn,
+                drop_rate=drop_rate,
+            )
         )
         self.layers.append(
-            UniGINConv(hid_channels, out_channels, eps=eps, train_eps=train_eps, use_bn=use_bn, is_last=True)
+            UniGINConv(
+                hid_channels,
+                out_channels,
+                eps=eps,
+                train_eps=train_eps,
+                use_bn=use_bn,
+                is_last=True,
+            )
         )
 
     def forward(self, X: torch.Tensor, hg: "dhg.Hypergraph") -> torch.Tensor:
