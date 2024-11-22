@@ -123,20 +123,20 @@ print("加载数据中...")
 
 msg_pass_ratio: float = 0.7
 train_set = LinkPredictDataset(
-    dataset_name="2024-09-18_15-26-11",
+    dataset_name="2024-10-15_22-37-01",
     root_dir=Path("./data"),
     ratio=(msg_pass_ratio, 1 - msg_pass_ratio),
 )
 # msg_pass_ratio = 0.5
 validate_set = LinkPredictDataset(
-    dataset_name="2024-09-18_18-26-51",
+    dataset_name="2024-10-16_10-14-09",
     root_dir=Path("./data"),
     ratio=(msg_pass_ratio, 1 - msg_pass_ratio),
     # data_balance=False,
 )
 # msg_pass_ratio = 0.5
 test_set = LinkPredictDataset(
-    dataset_name="2024-09-18_20-05-14",
+    dataset_name="2024-10-16_18-13-06",
     root_dir=Path("./data"),
     ratio=(msg_pass_ratio, 1 - msg_pass_ratio),
     # data_balance=False,
@@ -149,7 +149,7 @@ print("已加载数据")
 evaluator = Evaluator(
     ["auc", "accuracy", "f1_score", "confusion_matrix"], validate_index=1
 )
-epochs = 150
+epochs = 100
 
 batch_sz = 8
 
@@ -162,7 +162,7 @@ test_loader = DataLoader(test_set, batch_size=batch_sz, shuffle=False)
 in_channels = train_set.feat_dim
 hid_channels = 1024
 out_channels = 1024
-net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
+net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0.5)
 # net = UniGAT(
 #     in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0, num_heads=4
 # )
@@ -177,7 +177,7 @@ print(f"模型参数量：{num_params}")
 
 # optimizer = optim.Adam(itertools.chain(net.parameters(), pred.parameters()))
 optimizer = optim.Adam(
-    itertools.chain(net.parameters(), pred.parameters()), lr=0.01, weight_decay=5e-4
+    itertools.chain(net.parameters(), pred.parameters()), lr=0.001, weight_decay=5e-4
 )
 # optimizer = optim.SGD(
 #     itertools.chain(net.parameters(), pred.parameters()), lr=0.001, momentum=0.9
@@ -196,7 +196,7 @@ writer = {
     "validate": SummaryWriter("./logs/validate"),
     "test": SummaryWriter("./logs/test"),
 }
-best_state = None
+net_best_state, pred_best_state = None, None
 best_epoch, best_val = 0, 0
 with tqdm.trange(epochs) as tq:
     for epoch in tq:
@@ -213,7 +213,8 @@ with tqdm.trange(epochs) as tq:
                 # print(f"update best: {val_res:.5f}")
                 best_epoch = epoch
                 best_val = val_res
-                best_state = deepcopy(net.state_dict())
+                net_best_state = deepcopy(net.state_dict())
+                pred_best_state = deepcopy(pred.state_dict())
         tq.set_postfix(
             {
                 "best_epoch": f"{best_epoch}",
@@ -232,9 +233,13 @@ print(f"best val: {best_val:.5f}")
 # %%
 # test
 print("test...")
-if not (best_val == 0 or best_state):
-    net.load_state_dict(best_state)  # type: ignore
+if not (best_val == 0 or net_best_state or pred_best_state):
+    net.load_state_dict(net_best_state)  # type: ignore
+    net.load_state_dict(pred_best_state)  # type: ignore
 test_res = infer(net, pred, test_loader, test=True)
 print(f"final result: epoch: {best_epoch}")
 print(test_res)
 [getattr(writer[key], "close")() for key in writer]  # writer.close()
+
+torch.save(net, Path("./net.pth"))
+torch.save(pred, Path("./pred.pth"))

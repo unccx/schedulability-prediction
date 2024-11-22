@@ -10,6 +10,7 @@ LANG=*
 USER=*
 DISPLAY=:0
 *.svg
+*.pth
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
