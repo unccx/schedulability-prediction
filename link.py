@@ -14,20 +14,26 @@ from dhg.random import set_seed
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter  # type: ignore
 
-from data import LinkPredictDataset
+from dataset import LinkPredictDataset
 from metric import LinkPredictionEvaluator as Evaluator
 from model import *
 from utils import *
 
 
 # %%
-def train(net, pred, data_loader, optimizer, epoch):
+def train(
+    net: nn.Module,
+    pred: nn.Module,
+    data_loader: DataLoader,
+    optimizer: optim.Optimizer,
+    epoch: int,
+):
     global device, writer
     net.train()
     pred.train()
 
     st = time.time()
-    dataset: LinkPredictDataset = data_loader.dataset
+    dataset = data_loader.dataset
     loss_mean = 0
 
     for pos_hyperedge, neg_hyperedge in data_loader:
@@ -35,7 +41,7 @@ def train(net, pred, data_loader, optimizer, epoch):
         neg_hg = Hypergraph(dataset.num_v, neg_hyperedge, device=device)
         optimizer.zero_grad()
 
-        hyperedge_embedding = net(dataset.X, dataset.msg_pass_hg)
+        hyperedge_embedding = net(dataset.X, dataset.msgpass_hg)
         pos_scores = pred(hyperedge_embedding, pos_hg).squeeze()
         neg_scores = pred(hyperedge_embedding, neg_hg).squeeze()
 
@@ -80,7 +86,7 @@ def infer(net, pred, data_loader, test=False):
     dataset = data_loader.dataset
 
     start = time.time()
-    hyperedge_embedding = net(dataset.X, dataset.msg_pass_hg)
+    hyperedge_embedding = net(dataset.X, dataset.msgpass_hg)
     pos_scores = pred(hyperedge_embedding, dataset.pos_hg).squeeze()
     neg_scores = pred(hyperedge_embedding, dataset.neg_hg).squeeze()
     end = time.time()
@@ -121,22 +127,22 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 
 print("加载数据中...")
 
-msg_pass_ratio: float = 0.7
+msgpass_ratio: float = 0.5
 train_set = LinkPredictDataset(
-    dataset_name="2024-10-15_22-37-01",
+    dataset_name="2024-09-18_15-26-11",
     root_dir=Path("./data"),
     ratio=(msg_pass_ratio, 1 - msg_pass_ratio),
 )
-# msg_pass_ratio = 0.5
+
 validate_set = LinkPredictDataset(
-    dataset_name="2024-10-16_10-14-09",
+    dataset_name="2024-09-18_18-26-51",
     root_dir=Path("./data"),
     ratio=(msg_pass_ratio, 1 - msg_pass_ratio),
     # data_balance=False,
 )
-# msg_pass_ratio = 0.5
+
 test_set = LinkPredictDataset(
-    dataset_name="2024-10-16_18-13-06",
+    dataset_name="2024-09-18_20-05-14",
     root_dir=Path("./data"),
     ratio=(msg_pass_ratio, 1 - msg_pass_ratio),
     # data_balance=False,
@@ -149,7 +155,7 @@ print("已加载数据")
 evaluator = Evaluator(
     ["auc", "accuracy", "f1_score", "confusion_matrix"], validate_index=1
 )
-epochs = 100
+epochs = 150
 
 batch_sz = 8
 
@@ -162,7 +168,7 @@ test_loader = DataLoader(test_set, batch_size=batch_sz, shuffle=False)
 in_channels = train_set.feat_dim
 hid_channels = 1024
 out_channels = 1024
-net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0.5)
+net = HGNNP(in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0)
 # net = UniGAT(
 #     in_channels, hid_channels, out_channels, use_bn=True, drop_rate=0, num_heads=4
 # )
